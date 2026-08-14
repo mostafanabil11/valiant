@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+
+# env files — never commit secrets
+.env
+.env.*
+!.env.example
+
+# build output
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# local tooling config (personal, not project code)
+.claude/
+
+# coverage
+coverage/

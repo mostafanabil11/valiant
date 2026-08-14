@@ -1,0 +1,163 @@
+import { Controller, Post, Body, UseGuards, Get, Request, Res, HttpCode, UnauthorizedException } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { RegisterDto, LoginDto, VerifyEmailDto, ResendOtpDto, ForgotPasswordDto, ResetPasswordDto } from './dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { GoogleAuthGuard } from './guards/google-auth.guard';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Public } from './decorators/public.decorator';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { Response } from 'express';
+import { RequestUser } from './interfaces/request-user.interface';
+import { GoogleProfile } from './interfaces/google-profile.interface';
+import { ConfigService } from '@/config/config.service';
+import { parseDurationToMs } from '@/common/utils/duration.util';
+
+@ApiTags('Auth')
+@Controller('auth')
+export class AuthController {
+  constructor(
+    private authService: AuthService,
+    private configService: ConfigService,
+  ) {}
+
+  private setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
+    const isProduction = this.configService.nodeEnv === 'production';
+    const base = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax' as const,
+      path: '/',
+    };
+
+    res.cookie('accessToken', accessToken, {
+      ...base,
+      maxAge: parseDurationToMs(this.configService.jwtExpiration),
+    });
+    res.cookie('refreshToken', refreshToken, {
+      ...base,
+      maxAge: parseDurationToMs(this.configService.jwtRefreshExpiration),
+    });
+  }
+
+  private clearAuthCookies(res: Response) {
+    res.clearCookie('accessToken', { path: '/' });
+    res.clearCookie('refreshToken', { path: '/' });
+  }
+
+  @Public()
+  @Post('register')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Register a new user' })
+  @ApiResponse({ status: 201, description: 'Registration successful' })
+  async register(@Body() registerDto: RegisterDto) {
+    return this.authService.register(registerDto);
+  }
+
+  @Public()
+  @Post('verify-email')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Verify email with OTP' })
+  @ApiResponse({ status: 200, description: 'Email verified successfully' })
+  async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
+    return this.authService.verifyEmail(verifyEmailDto);
+  }
+
+  @Public()
+  @Post('resend-otp')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Resend OTP to email' })
+  @ApiResponse({ status: 200, description: 'OTP sent successfully' })
+  async resendOtp(@Body() resendOtpDto: ResendOtpDto) {
+    return this.authService.resendOtp(resendOtpDto.email);
+  }
+
+  @Public()
+  @Post('login')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Login with email and password' })
+  @ApiResponse({ status: 200, description: 'Login successful' })
+  async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.login(loginDto);
+    this.setAuthCookies(res, result.data.accessToken, result.data.refreshToken);
+    return {
+      success: result.success,
+      message: result.message,
+      data: { user: result.data.user },
+    };
+  }
+
+  @Public()
+  @Post('refresh')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Refresh access token (reads refreshToken cookie)' })
+  @ApiResponse({ status: 200, description: 'Token refreshed' })
+  async refresh(@Request() req: any, @Res({ passthrough: true }) res: Response) {
+    const refreshToken = req.cookies?.refreshToken;
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token provided');
+    }
+    const result = await this.authService.refresh(refreshToken);
+    this.setAuthCookies(res, result.data.accessToken, result.data.refreshToken);
+    return {
+      success: result.success,
+      message: result.message,
+      data: null,
+    };
+  }
+
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Request password reset email' })
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(forgotPasswordDto);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Reset password with token' })
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(resetPasswordDto);
+  }
+
+  @Public()
+  @Get('google')
+  @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Google OAuth login redirect' })
+  async googleAuth() {
+  }
+
+  @Public()
+  @Get('google/callback')
+  @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Google OAuth callback' })
+  async googleAuthRedirect(@Request() req: any, @Res() res: Response) {
+    const result = await this.authService.googleLogin(req.user as GoogleProfile);
+    this.setAuthCookies(res, result.data.accessToken, result.data.refreshToken);
+    res.redirect(this.configService.frontendUrl);
+  }
+
+  @Get('profile')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current user profile' })
+  @ApiResponse({ status: 200, description: 'User profile retrieved' })
+  async getProfile(@CurrentUser() user: RequestUser) {
+    return {
+      success: true,
+      message: 'Profile retrieved',
+      data: await this.authService.validateUser(user.userId),
+    };
+  }
+
+  @Post('logout')
+  @HttpCode(200)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Logout user' })
+  @ApiResponse({ status: 200, description: 'Logout successful' })
+  async logout(@CurrentUser() user: RequestUser, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.logout(user.userId);
+    this.clearAuthCookies(res);
+    return result;
+  }
+}
