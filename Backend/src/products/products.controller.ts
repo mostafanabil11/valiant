@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { CreateProductDto, UpdateProductDto, ProductQueryDto } from './dto';
@@ -11,6 +12,7 @@ export class ProductsController {
   constructor(private productsService: ProductsService) {}
 
   @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get()
   @ApiOperation({ summary: 'Browse products (filter by category id, size, sort, search query q, page, limit)' })
   async findAll(@Query() query: ProductQueryDto) {
@@ -18,6 +20,7 @@ export class ProductsController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get('best-sellers')
   @ApiOperation({ summary: 'Get best-seller products (for homepage)' })
   async findBestSellers() {
@@ -49,6 +52,7 @@ export class ProductsController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get(':slug')
   @ApiOperation({ summary: 'Get a product by slug (includes sibling colorways via styleGroup)' })
   async findBySlug(@Param('slug') slug: string) {

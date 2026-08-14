@@ -6,7 +6,7 @@ export const envSchema = z.object({
   MONGODB_URI: z.string().url(),
   FRONTEND_URL: z.string().url().default('http://localhost:3001'),
   
-  JWT_SECRET: z.string().min(1),
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters — generate one with `openssl rand -base64 48`'),
   JWT_EXPIRATION: z.string().default('15m'),
   JWT_REFRESH_EXPIRATION: z.string().default('7d'),
   

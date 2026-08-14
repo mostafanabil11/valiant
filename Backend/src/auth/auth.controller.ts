@@ -1,4 +1,5 @@
 import { Controller, Post, Body, UseGuards, Get, Request, Res, HttpCode, UnauthorizedException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto, LoginDto, VerifyEmailDto, ResendOtpDto, ForgotPasswordDto, ResetPasswordDto } from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -9,6 +10,7 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import { Response } from 'express';
 import { RequestUser } from './interfaces/request-user.interface';
 import { GoogleProfile } from './interfaces/google-profile.interface';
+import { DeviceInfo } from './interfaces/device-info.interface';
 import { ConfigService } from '@/config/config.service';
 import { parseDurationToMs } from '@/common/utils/duration.util';
 
@@ -44,7 +46,15 @@ export class AuthController {
     res.clearCookie('refreshToken', { path: '/' });
   }
 
+  private getDeviceInfo(req: any): DeviceInfo {
+    return {
+      userAgent: req.headers?.['user-agent'] ?? null,
+      ip: req.ip ?? null,
+    };
+  }
+
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('register')
   @HttpCode(201)
   @ApiOperation({ summary: 'Register a new user' })
@@ -54,6 +64,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('verify-email')
   @HttpCode(200)
   @ApiOperation({ summary: 'Verify email with OTP' })
@@ -63,6 +74,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('resend-otp')
   @HttpCode(200)
   @ApiOperation({ summary: 'Resend OTP to email' })
@@ -72,12 +84,17 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
   @HttpCode(200)
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiResponse({ status: 200, description: 'Login successful' })
-  async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.login(loginDto);
+  async login(
+    @Body() loginDto: LoginDto,
+    @Request() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.login(loginDto, this.getDeviceInfo(req));
     this.setAuthCookies(res, result.data.accessToken, result.data.refreshToken);
     return {
       success: result.success,
@@ -96,7 +113,7 @@ export class AuthController {
     if (!refreshToken) {
       throw new UnauthorizedException('No refresh token provided');
     }
-    const result = await this.authService.refresh(refreshToken);
+    const result = await this.authService.refresh(refreshToken, this.getDeviceInfo(req));
     this.setAuthCookies(res, result.data.accessToken, result.data.refreshToken);
     return {
       success: result.success,
@@ -106,6 +123,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('forgot-password')
   @HttpCode(200)
   @ApiOperation({ summary: 'Request password reset email' })
@@ -114,6 +132,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('reset-password')
   @HttpCode(200)
   @ApiOperation({ summary: 'Reset password with token' })
@@ -133,7 +152,7 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   @ApiOperation({ summary: 'Google OAuth callback' })
   async googleAuthRedirect(@Request() req: any, @Res() res: Response) {
-    const result = await this.authService.googleLogin(req.user as GoogleProfile);
+    const result = await this.authService.googleLogin(req.user as GoogleProfile, this.getDeviceInfo(req));
     this.setAuthCookies(res, result.data.accessToken, result.data.refreshToken);
     res.redirect(this.configService.frontendUrl);
   }
@@ -155,8 +174,12 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Logout user' })
   @ApiResponse({ status: 200, description: 'Logout successful' })
-  async logout(@CurrentUser() user: RequestUser, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.logout(user.userId);
+  async logout(
+    @CurrentUser() user: RequestUser,
+    @Request() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.logout(user.userId, req.cookies?.refreshToken);
     this.clearAuthCookies(res);
     return result;
   }

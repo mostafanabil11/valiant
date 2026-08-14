@@ -32,6 +32,9 @@ export class Product {
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'Category', required: true })
   category!: Types.ObjectId;
 
+  // Minor units (piastres — 1 EGP = 100), stored as an integer so totals,
+  // discounts, and tax never accumulate floating-point rounding error.
+  // Convert to major units only at the display edge (Frontend's formatPrice).
   @Prop({ required: true, min: 0 })
   price: number = 0;
 
@@ -55,3 +58,13 @@ export class Product {
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);
+
+// Covers findAll()'s default listing query (active products in a category,
+// newest first) and findBestSellers() — both previously full collection scans.
+ProductSchema.index({ isActive: 1, category: 1, createdAt: -1 });
+ProductSchema.index({ isActive: 1, isBestSeller: 1 });
+// Covers findBySlug()'s "also available in" sibling-colorway lookup.
+ProductSchema.index({ styleGroup: 1 });
+// Backs the free-text `q` search in findAll() — replaces the previous
+// unanchored regex scan across name/color.
+ProductSchema.index({ name: 'text', description: 'text', color: 'text' });

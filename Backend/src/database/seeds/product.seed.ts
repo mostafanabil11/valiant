@@ -17,6 +17,7 @@ interface SeedProduct {
   styleGroup: string | null;
   parentSlug: 'men' | 'women';
   childSlug: string;
+  /** EGP, whole units — converted to minor units (piastres) below at insertion. */
   price: number;
   discountPrice?: number;
   imageCount: 1 | 2;
@@ -367,8 +368,8 @@ async function run() {
       color: item.color,
       styleGroup: item.styleGroup ? slugify(item.styleGroup) : null,
       category: categoryId,
-      price: item.price,
-      discountPrice: item.discountPrice ?? null,
+      price: item.price * 100,
+      discountPrice: item.discountPrice ? item.discountPrice * 100 : null,
       images,
       sizes: item.sizes,
       isBestSeller: item.isBestSeller ?? false,

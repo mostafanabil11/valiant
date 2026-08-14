@@ -10,8 +10,10 @@ export const createProductSchema = z.object({
   color: z.string().min(1, 'Color is required').max(50),
   styleGroup: z.string().max(150).optional().nullable(),
   category: z.string().min(1, 'Category is required'),
-  price: z.number().positive('Price must be greater than 0'),
-  discountPrice: z.number().positive().optional().nullable(),
+  // Minor units (piastres — 1 EGP = 100), always an integer, so money never
+  // touches floating-point arithmetic on the way in.
+  price: z.number().int('Price must be a whole number of minor units (e.g. piastres)').positive('Price must be greater than 0'),
+  discountPrice: z.number().int('Discount price must be a whole number of minor units').positive().optional().nullable(),
   images: z.array(z.string()).min(1, 'At least one image is required'),
   sizes: z
     .array(

@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { User, UserDocument } from './schemas/user.schema';
@@ -16,6 +16,8 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleProfile } from './interfaces/google-profile.interface';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
+import { DeviceInfo } from './interfaces/device-info.interface';
+import { parseDurationToMs } from '@/common/utils/duration.util';
 
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -110,7 +112,34 @@ export class AuthService {
     };
   }
 
-  private async generateTokens(user: UserDocument) {
+  private hashResetToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  // Refresh tokens are hashed with sha256, not bcrypt — bcrypt silently
+  // truncates its input at 72 bytes, and these JWTs run well past that
+  // (~250 chars, with only the tail — iat/exp/signature — varying between
+  // issuances). bcrypt.compare() against a truncated hash would therefore
+  // treat *any* refresh token ever issued to a user as a match for any
+  // other, defeating rotation-based reuse detection entirely. sha256 has
+  // no truncation and the token is already high-entropy, so no slow
+  // password-style hash is needed here anyway.
+  private hashRefreshToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  // Finds which of a user's sessions (if any) a presented refresh token
+  // belongs to. Bounded by how many devices one person is signed in on —
+  // nothing like the all-users scan resetPassword used to do.
+  private findSessionIndex(user: UserDocument, refreshToken: string): number {
+    const candidateHash = Buffer.from(this.hashRefreshToken(refreshToken));
+    return user.sessions.findIndex((session) => {
+      const storedHash = Buffer.from(session.tokenHash);
+      return storedHash.length === candidateHash.length && crypto.timingSafeEqual(storedHash, candidateHash);
+    });
+  }
+
+  private async generateTokens(user: UserDocument, deviceInfo: DeviceInfo) {
     const payload: JwtPayload = {
       sub: user._id.toString(),
       email: user.email,
@@ -129,15 +158,26 @@ export class AuthService {
       { ...payload, type: 'refresh' },
       { expiresIn: this.configService.jwtRefreshExpiration },
     );
-    const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+    const hashedRefreshToken = this.hashRefreshToken(refreshToken);
+    const now = new Date();
 
-    user.refreshToken = hashedRefreshToken;
+    // Drop anything already expired before adding this one — keeps the array
+    // from growing forever across devices that never explicitly log out.
+    user.sessions = user.sessions.filter((session) => session.expiresAt > now);
+    user.sessions.push({
+      _id: new Types.ObjectId(),
+      tokenHash: hashedRefreshToken,
+      userAgent: deviceInfo.userAgent,
+      ip: deviceInfo.ip,
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + parseDurationToMs(this.configService.jwtRefreshExpiration)),
+    });
     await user.save();
 
     return { accessToken, refreshToken };
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, deviceInfo: DeviceInfo) {
     const { email, password } = loginDto;
 
     const user = await this.userModel.findOne({ email });
@@ -171,8 +211,8 @@ export class AuthService {
     user.loginAttempts = 0;
     user.lastLoginAttempt = new Date();
     user.lockedUntil = null;
-    
-    const { accessToken, refreshToken } = await this.generateTokens(user);
+
+    const { accessToken, refreshToken } = await this.generateTokens(user, deviceInfo);
 
     return {
       success: true,
@@ -193,7 +233,7 @@ export class AuthService {
     };
   }
 
-  async refresh(refreshToken: string) {
+  async refresh(refreshToken: string, deviceInfo: DeviceInfo) {
     let payload: JwtPayload;
     try {
       payload = this.jwtService.verify<JwtPayload>(refreshToken);
@@ -206,16 +246,21 @@ export class AuthService {
     }
 
     const user = await this.userModel.findById(payload.sub);
-    if (!user || !user.refreshToken) {
+    if (!user) {
       throw new UnauthorizedException('Access denied');
     }
 
-    const isRefreshValid = await bcrypt.compare(refreshToken, user.refreshToken);
-    if (!isRefreshValid) {
-       throw new UnauthorizedException('Access denied');
+    const sessionIndex = this.findSessionIndex(user, refreshToken);
+    if (sessionIndex === -1) {
+      throw new UnauthorizedException('Access denied');
     }
 
-    const tokens = await this.generateTokens(user);
+    // Rotation: this device's old refresh token is consumed here and
+    // generateTokens() below issues it a fresh one — every other device's
+    // session is untouched.
+    user.sessions.splice(sessionIndex, 1);
+
+    const tokens = await this.generateTokens(user, deviceInfo);
     return {
       success: true,
       message: 'Tokens refreshed',
@@ -223,8 +268,18 @@ export class AuthService {
     }
   }
 
-  async logout(userId: string) {
-    await this.userModel.findByIdAndUpdate(userId, { refreshToken: null });
+  async logout(userId: string, refreshToken: string | undefined) {
+    const user = await this.userModel.findById(userId);
+    if (user && refreshToken) {
+      // Only end *this* device's session — signing out on the phone
+      // shouldn't sign out the desktop too.
+      const sessionIndex = this.findSessionIndex(user, refreshToken);
+      if (sessionIndex !== -1) {
+        user.sessions.splice(sessionIndex, 1);
+        await user.save();
+      }
+    }
+
     return {
       success: true,
       message: 'Logout successful',
@@ -232,27 +287,48 @@ export class AuthService {
     };
   }
 
-  async googleLogin(profile: GoogleProfile) {
-    const { email, displayName } = profile;
+  async googleLogin(profile: GoogleProfile, deviceInfo: DeviceInfo) {
+    const { googleId, email, displayName } = profile;
     const [firstName, ...lastNameParts] = displayName.split(' ');
     const lastName = lastNameParts.join(' ');
 
-    let user = await this.userModel.findOne({ email });
+    // Repeat sign-in: this Google account has already been linked to a user
+    // here before, so there's nothing left to verify.
+    let user = await this.userModel.findOne({ googleId });
 
     if (!user) {
-      user = new this.userModel({
-        email,
-        firstName: firstName || 'User',
-        lastName: lastName || '',
-        password: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10),
-        isEmailVerified: true,
-        role: 'user',
-      });
-    } else if (!user.isEmailVerified) {
-      user.isEmailVerified = true;
+      user = await this.userModel.findOne({ email });
+
+      if (!user) {
+        user = new this.userModel({
+          email,
+          firstName: firstName || 'User',
+          lastName: lastName || '',
+          password: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10),
+          isEmailVerified: true,
+          googleId,
+          authProvider: 'google',
+          role: 'user',
+        });
+      } else {
+        // A local account already owns this email but was never linked to
+        // this Google account. Google itself just proved the signed-in
+        // person controls the mailbox — that's real proof of ownership.
+        // But if the local account was still unverified, its password may
+        // have been set by someone else entirely (e.g. an attacker
+        // pre-registering the victim's email to plant a password they
+        // control). Verified-Google-owner now takes over the account, and
+        // that stale, unproven password is invalidated rather than trusted.
+        if (!user.isEmailVerified) {
+          user.password = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10);
+        }
+        user.googleId = googleId;
+        user.authProvider = 'google';
+        user.isEmailVerified = true;
+      }
     }
-    
-    const { accessToken, refreshToken } = await this.generateTokens(user);
+
+    const { accessToken, refreshToken } = await this.generateTokens(user, deviceInfo);
 
     return {
       success: true,
@@ -273,8 +349,25 @@ export class AuthService {
     };
   }
 
+  // Whitelisted, not blacklisted: only what the client actually needs, so a
+  // new internal field added to the schema later doesn't automatically leak
+  // (loginAttempts, lockedUntil, otpExpiresAt etc. were previously exposed
+  // this way).
   async validateUser(userId: string) {
-    return this.userModel.findById(userId).select('-password -emailVerificationOtp -refreshToken -resetPasswordToken');
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      return null;
+    }
+
+    return {
+      _id: user._id.toString(),
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      isEmailVerified: user.isEmailVerified,
+      role: user.role,
+      createdAt: user.createdAt,
+    };
   }
 
   async resendOtp(email: string) {
@@ -318,8 +411,8 @@ export class AuthService {
     }
     
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = await bcrypt.hash(resetToken, 10);
-    
+    const hashedToken = this.hashResetToken(resetToken);
+
     user.resetPasswordToken = hashedToken;
     user.resetPasswordExpiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await user.save();
@@ -334,23 +427,16 @@ export class AuthService {
   
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
     const { token, newPassword } = resetPasswordDto;
-    
-    const users = await this.userModel.find({
-      resetPasswordExpiresAt: { $gt: new Date() }
+
+    const targetUser = await this.userModel.findOne({
+      resetPasswordToken: this.hashResetToken(token),
+      resetPasswordExpiresAt: { $gt: new Date() },
     });
-    
-    let targetUser: UserDocument | null = null;
-    for (const user of users) {
-      if (user.resetPasswordToken && await bcrypt.compare(token, user.resetPasswordToken)) {
-        targetUser = user;
-        break;
-      }
-    }
-    
+
     if (!targetUser) {
       throw new BadRequestException('Invalid or expired password reset token');
     }
-    
+
     targetUser.password = await bcrypt.hash(newPassword, 10);
     targetUser.resetPasswordToken = null;
     targetUser.resetPasswordExpiresAt = null;

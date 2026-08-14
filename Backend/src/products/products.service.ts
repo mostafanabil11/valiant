@@ -6,7 +6,6 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
 import { slugify } from '@/common/utils/slugify.util';
-import { escapeRegex } from '@/common/utils/regex.util';
 import { CategoriesService } from '@/categories/categories.service';
 
 @Injectable()
@@ -170,11 +169,14 @@ export class ProductsService {
     }
 
     if (query.q) {
-      const regex = new RegExp(escapeRegex(query.q), 'i');
+      // Backed by the text index on name/description/color — indexed word
+      // matching instead of a full-collection regex scan. Still OR'd with
+      // a category-name match so e.g. searching "pants" surfaces products
+      // filed under that category even when the word isn't in the product's
+      // own name.
       const matchingCategoryIds = await this.categoriesService.findIdsByNameMatch(query.q);
       filter.$or = [
-        { name: regex },
-        { color: regex },
+        { $text: { $search: query.q } },
         ...(matchingCategoryIds.length > 0 ? [{ category: { $in: matchingCategoryIds } }] : []),
       ];
     }

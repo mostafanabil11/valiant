@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto, UpdateCategoryDto, ReorderCategoriesDto } from './dto';
@@ -11,6 +12,7 @@ export class CategoriesController {
   constructor(private categoriesService: CategoriesService) {}
 
   @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get()
   @ApiOperation({ summary: 'Get the full category tree (for nav/mega-menu)' })
   async getTree() {
@@ -18,6 +20,7 @@ export class CategoriesController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get('featured')
   @ApiOperation({ summary: 'Get categories featured on the homepage' })
   async getFeatured() {
@@ -58,6 +61,7 @@ export class CategoriesController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get(':parentSlug/:childSlug')
   @ApiOperation({ summary: 'Get a subcategory by parent + child slug' })
   async getChildBySlug(
@@ -68,6 +72,7 @@ export class CategoriesController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get(':slug')
   @ApiOperation({ summary: 'Get a top-level category by slug, with its children' })
   async getBySlug(@Param('slug') slug: string) {

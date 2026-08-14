@@ -23,9 +23,14 @@ import { ProductsModule } from './products/products.module';
       validate: validateEnv,
     }),
     EventEmitterModule.forRoot(),
+    // Baseline for every route that doesn't opt into a stricter or looser
+    // tier via @Throttle — see auth.controller.ts (5/min on login, register,
+    // OTP, password reset) and products/categories controllers' public GET
+    // handlers (120/min for normal catalog browsing).
     ThrottlerModule.forRoot([{
+      name: 'default',
       ttl: 60000,
-      limit: 10,
+      limit: 60,
     }]),
     MongooseModule.forRootAsync({
       imports: [MyConfigModule],
