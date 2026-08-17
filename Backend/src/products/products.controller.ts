@@ -1,12 +1,17 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseInterceptors } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
-import { CreateProductDto, UpdateProductDto, ProductQueryDto } from './dto';
+import { CreateProductDto, UpdateProductDto, ProductQueryDto, BulkAdjustStockDto } from './dto';
 import { Public } from '@/auth/decorators/public.decorator';
 import { Roles } from '@/common/decorators/roles.decorator';
+import { Audit } from '@/common/decorators/audit.decorator';
+import { AuditInterceptor } from '@/common/interceptors/audit.interceptor';
+import { CurrentUser } from '@/auth/decorators/current-user.decorator';
+import { RequestUser } from '@/auth/interfaces/request-user.interface';
 
 @ApiTags('Products')
+@UseInterceptors(AuditInterceptor)
 @Controller('products')
 export class ProductsController {
   constructor(private productsService: ProductsService) {}
@@ -27,7 +32,56 @@ export class ProductsController {
     return this.productsService.findBestSellers();
   }
 
+  @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
+  @Get('colors')
+  @ApiOperation({ summary: 'Distinct colors in use across active products, for filter UI' })
+  async listColors() {
+    const data = await this.productsService.listDistinctColors();
+    return { success: true, message: 'Colors retrieved', data };
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
+  @Get('suggest')
+  @ApiOperation({ summary: 'Autocomplete suggestions for the search box' })
+  async suggest(@Query('q') q?: string) {
+    if (!q || !q.trim()) {
+      return { success: true, message: 'Suggestions retrieved', data: [] };
+    }
+    return this.productsService.suggest(q.trim());
+  }
+
+  // Registered ahead of the public GET :slug route below — a static segment
+  // like "admin" would otherwise be swallowed as a slug value.
   @Roles('admin')
+  @Get('admin')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Browse all products including inactive ones (admin only)' })
+  async findAllAdmin(@Query() query: ProductQueryDto) {
+    return this.productsService.findAllAdmin(query);
+  }
+
+  @Roles('admin')
+  @Get('admin/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get one product by id, active or not (admin only)' })
+  async findOneAdmin(@Param('id') id: string) {
+    return this.productsService.findByIdAdmin(id);
+  }
+
+  @Roles('admin')
+  @Audit('product.stock_adjust')
+  @Post('stock/bulk-adjust')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Manually adjust stock for one or more product/size lines (admin only)' })
+  async bulkAdjustStock(@CurrentUser() user: RequestUser, @Body() dto: BulkAdjustStockDto) {
+    const results = await this.productsService.bulkAdjustStock(dto.lines, user.email);
+    return { success: true, message: 'Stock adjustment processed', data: results };
+  }
+
+  @Roles('admin')
+  @Audit('product.create')
   @Post()
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a product (admin only)' })
@@ -36,6 +90,7 @@ export class ProductsController {
   }
 
   @Roles('admin')
+  @Audit('product.update')
   @Patch(':id')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update a product (admin only)' })
@@ -44,11 +99,20 @@ export class ProductsController {
   }
 
   @Roles('admin')
+  @Audit('product.deactivate')
   @Delete(':id')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Delete a product (admin only)' })
+  @ApiOperation({ summary: 'Deactivate a product — soft delete, admin only (PATCH isActive:true to restore)' })
   async remove(@Param('id') id: string) {
     return this.productsService.remove(id);
+  }
+
+  @Roles('admin')
+  @Get(':id/stock-movements')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Get a product's stock movement history (admin only)" })
+  async getStockMovements(@Param('id') id: string) {
+    return this.productsService.getStockMovements(id);
   }
 
   @Public()

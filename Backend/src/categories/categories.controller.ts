@@ -1,12 +1,15 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseInterceptors } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto, UpdateCategoryDto, ReorderCategoriesDto } from './dto';
 import { Public } from '@/auth/decorators/public.decorator';
 import { Roles } from '@/common/decorators/roles.decorator';
+import { Audit } from '@/common/decorators/audit.decorator';
+import { AuditInterceptor } from '@/common/interceptors/audit.interceptor';
 
 @ApiTags('Categories')
+@UseInterceptors(AuditInterceptor)
 @Controller('categories')
 export class CategoriesController {
   constructor(private categoriesService: CategoriesService) {}
@@ -27,7 +30,18 @@ export class CategoriesController {
     return this.categoriesService.findFeatured();
   }
 
+  // Registered ahead of the public :parentSlug/:childSlug and :slug routes
+  // below — otherwise "admin/tree" would be swallowed as slug params.
   @Roles('admin')
+  @Get('admin/tree')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get the full category tree including inactive categories (admin only)' })
+  async getTreeAdmin() {
+    return this.categoriesService.findTreeAdmin();
+  }
+
+  @Roles('admin')
+  @Audit('category.create')
   @Post()
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a category (admin only)' })
@@ -37,6 +51,7 @@ export class CategoriesController {
   }
 
   @Roles('admin')
+  @Audit('category.reorder')
   @Patch('reorder')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Bulk update display order (admin only)' })
@@ -45,6 +60,7 @@ export class CategoriesController {
   }
 
   @Roles('admin')
+  @Audit('category.update')
   @Patch(':id')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update a category (admin only)' })
@@ -53,6 +69,7 @@ export class CategoriesController {
   }
 
   @Roles('admin')
+  @Audit('category.delete')
   @Delete(':id')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete a category (admin only)' })

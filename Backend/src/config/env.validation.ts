@@ -20,6 +20,11 @@ export const envSchema = z.object({
   OTP_EXPIRATION_MINUTES: z.string().default('10').transform(Number),
   MAX_LOGIN_ATTEMPTS: z.string().default('5').transform(Number),
   LOCK_TIME_MINUTES: z.string().default('15').transform(Number),
+  
+  PAYMOB_API_KEY: z.string().optional(),
+  PAYMOB_INTEGRATION_ID: z.string().optional(),
+  PAYMOB_IFRAME_ID: z.string().optional(),
+  PAYMOB_HMAC_SECRET: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

@@ -14,6 +14,8 @@ import { OtpUtils } from './utils/otp.utils';
 import { EmailUtils } from './utils/email.utils';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { GoogleProfile } from './interfaces/google-profile.interface';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { DeviceInfo } from './interfaces/device-info.interface';
@@ -366,7 +368,55 @@ export class AuthService {
       lastName: user.lastName,
       isEmailVerified: user.isEmailVerified,
       role: user.role,
+      authProvider: user.authProvider,
       createdAt: user.createdAt,
+    };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    user.firstName = dto.firstName;
+    user.lastName = dto.lastName;
+    await user.save();
+
+    return {
+      success: true,
+      message: 'Profile updated',
+      data: await this.validateUser(userId),
+    };
+  }
+
+  // Invalidates every session (this device included) on success — the same
+  // "assume the old password may be compromised" posture as a reset, so a
+  // stolen refresh token can't outlive the password that was just changed.
+  // The client re-authenticates with the new password afterward.
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    if (user.authProvider === 'google') {
+      throw new BadRequestException('This account signs in with Google and has no separate password to change');
+    }
+
+    const isCurrentPasswordValid = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    user.password = await bcrypt.hash(dto.newPassword, 10);
+    user.sessions = [];
+    await user.save();
+
+    return {
+      success: true,
+      message: 'Password changed — please sign in again',
+      data: null,
     };
   }
 

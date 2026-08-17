@@ -2,10 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { EmailService } from '../services/email.service';
 import { EmailUtils } from '../utils/email.utils';
+import { ConfigService } from '@/config/config.service';
 
 @Injectable()
 export class AuthListener {
-  constructor(private emailService: EmailService) {}
+  constructor(
+    private emailService: EmailService,
+    private configService: ConfigService,
+  ) {}
 
   @OnEvent('user.registered')
   async handleUserRegisteredEvent(payload: { email: string; firstName: string; otp: string }) {
@@ -27,7 +31,9 @@ export class AuthListener {
 
   @OnEvent('user.forgot-password')
   async handleUserForgotPasswordEvent(payload: { email: string; firstName: string; resetToken: string }) {
-    const emailTemplate = EmailUtils.generatePasswordResetEmailTemplate(payload.firstName, payload.resetToken);
-    await this.emailService.sendPasswordResetEmail(payload.email, payload.firstName, emailTemplate);
+    const resetUrl = new URL('/reset-password', this.configService.frontendUrl);
+    resetUrl.searchParams.set('token', payload.resetToken);
+    const emailTemplate = EmailUtils.generatePasswordResetEmailTemplate(payload.firstName, resetUrl.toString());
+    await this.emailService.sendPasswordResetEmail(payload.email, payload.firstName, emailTemplate, resetUrl.toString());
   }
 }

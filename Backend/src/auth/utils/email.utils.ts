@@ -1,4 +1,227 @@
+interface OrderConfirmationLine {
+  name: string;
+  color: string;
+  size: string;
+  quantity: number;
+  lineTotal: number;
+}
+
+interface OrderConfirmationData {
+  orderNumber: string;
+  items: OrderConfirmationLine[];
+  subtotal: number;
+  shippingCost: number;
+  discountAmount: number;
+  total: number;
+  currency: string;
+  shippingAddress: {
+    firstName: string;
+    lastName: string;
+    addressLine: string;
+    city: string;
+    governorate: string;
+  };
+}
+
 export class EmailUtils {
+  private static formatMoney(minorUnits: number, currency: string): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(minorUnits / 100);
+  }
+
+  static generateOrderConfirmationEmailTemplate(userName: string, order: OrderConfirmationData): string {
+    const rows = order.items
+      .map(
+        (item) => `
+              <tr>
+                <td style="padding: 12px 0; border-bottom: 1px solid #eee;">
+                  <strong>${item.name}</strong><br>
+                  <span style="color: #777; font-size: 13px;">${item.color} · Size ${item.size} · Qty ${item.quantity}</span>
+                </td>
+                <td style="padding: 12px 0; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap;">
+                  ${this.formatMoney(item.lineTotal, order.currency)}
+                </td>
+              </tr>`,
+      )
+      .join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; background-color: #f4f4f4; }
+            .container { max-width: 600px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; }
+            .header { text-align: center; color: #333; margin-bottom: 20px; }
+            .content { color: #666; line-height: 1.6; }
+            table { width: 100%; border-collapse: collapse; }
+            .totals td { padding: 6px 0; }
+            .totals .label { color: #777; }
+            .totals .grand-total { font-weight: bold; color: #333; font-size: 16px; border-top: 2px solid #333; padding-top: 10px; }
+            .address { background-color: #f9f9f9; padding: 16px; border-radius: 5px; margin-top: 20px; }
+            .footer { text-align: center; color: #999; font-size: 12px; margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Thank You for Your Order</h1>
+            </div>
+            <div class="content">
+              <p>Hi ${userName},</p>
+              <p>We've received your order <strong>${order.orderNumber}</strong> and it's being prepared for shipment.</p>
+
+              <table>${rows}</table>
+
+              <table class="totals">
+                <tr><td class="label">Subtotal</td><td style="text-align: right;">${this.formatMoney(order.subtotal, order.currency)}</td></tr>
+                <tr><td class="label">Shipping</td><td style="text-align: right;">${order.shippingCost === 0 ? 'Free' : this.formatMoney(order.shippingCost, order.currency)}</td></tr>
+                ${order.discountAmount > 0 ? `<tr><td class="label">Discount</td><td style="text-align: right;">-${this.formatMoney(order.discountAmount, order.currency)}</td></tr>` : ''}
+                <tr class="grand-total"><td>Total</td><td style="text-align: right;">${this.formatMoney(order.total, order.currency)}</td></tr>
+              </table>
+
+              <div class="address">
+                <strong>Shipping to:</strong><br>
+                ${order.shippingAddress.firstName} ${order.shippingAddress.lastName}<br>
+                ${order.shippingAddress.addressLine}<br>
+                ${order.shippingAddress.city}, ${order.shippingAddress.governorate}
+              </div>
+
+              <p style="margin-top: 20px;">You'll get another email once your order ships.</p>
+              <p>Thank you for shopping with us,<br><strong>Valiant Team</strong></p>
+            </div>
+            <div class="footer">
+              <p>&copy; 2024 Valiant. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  }
+
+  private static wrap(title: string, bodyHtml: string): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; background-color: #f4f4f4; }
+            .container { max-width: 600px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; }
+            .header { text-align: center; color: #333; margin-bottom: 20px; }
+            .content { color: #666; line-height: 1.6; }
+            .tracking-box { background-color: #f0f0f0; padding: 16px; border-radius: 5px; margin: 20px 0; text-align: center; }
+            .tracking-code { font-size: 20px; font-weight: bold; color: #333; letter-spacing: 1px; }
+            .footer { text-align: center; color: #999; font-size: 12px; margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header"><h1>${title}</h1></div>
+            <div class="content">${bodyHtml}</div>
+            <div class="footer"><p>&copy; 2024 Valiant. All rights reserved.</p></div>
+          </div>
+        </body>
+      </html>
+    `;
+  }
+
+  static generateOrderShippedEmailTemplate(userName: string, orderNumber: string, trackingNumber: string | null): string {
+    return this.wrap(
+      'Your Order Has Shipped',
+      `
+        <p>Hi ${userName},</p>
+        <p>Good news — your order <strong>${orderNumber}</strong> is on its way.</p>
+        ${
+          trackingNumber
+            ? `<div class="tracking-box"><p style="margin: 0 0 6px;">Tracking number</p><div class="tracking-code">${trackingNumber}</div></div>`
+            : ''
+        }
+        <p>We'll let you know as soon as it's delivered.</p>
+        <p>Thank you for shopping with us,<br><strong>Valiant Team</strong></p>
+      `,
+    );
+  }
+
+  static generateOrderDeliveredEmailTemplate(userName: string, orderNumber: string): string {
+    return this.wrap(
+      'Your Order Has Arrived',
+      `
+        <p>Hi ${userName},</p>
+        <p>Your order <strong>${orderNumber}</strong> has been delivered. We hope you love it.</p>
+        <p>Thank you for shopping with us,<br><strong>Valiant Team</strong></p>
+      `,
+    );
+  }
+
+  static generateOrderRefundedEmailTemplate(userName: string, orderNumber: string, total: number, currency: string): string {
+    return this.wrap(
+      'Your Refund Has Been Processed',
+      `
+        <p>Hi ${userName},</p>
+        <p>We've processed a refund of <strong>${this.formatMoney(total, currency)}</strong> for order <strong>${orderNumber}</strong>. It should appear on your original payment method within a few business days.</p>
+        <p>If you have any questions, just reply to this email.</p>
+        <p><strong>Valiant Team</strong></p>
+      `,
+    );
+  }
+
+  static generateOrderCancelledEmailTemplate(userName: string, orderNumber: string): string {
+    return this.wrap(
+      'Your Order Has Been Cancelled',
+      `
+        <p>Hi ${userName},</p>
+        <p>Order <strong>${orderNumber}</strong> has been cancelled as requested. You have not been charged.</p>
+        <p>If this wasn't you, please contact us right away.</p>
+        <p><strong>Valiant Team</strong></p>
+      `,
+    );
+  }
+
+  static generateBackInStockEmailTemplate(productName: string, size: string, productUrl: string): string {
+    return this.wrap(
+      "It's Back",
+      `
+        <p>Good news — <strong>${productName}</strong> (size ${size}) is back in stock.</p>
+        <div class="tracking-box"><a href="${productUrl}" style="color:#111;text-decoration:underline;">Shop it now</a></div>
+        <p>Stock is limited, so grab it before it sells out again.</p>
+        <p><strong>Valiant Team</strong></p>
+      `,
+    );
+  }
+
+  static generateAbandonedCartEmailTemplate(
+    userName: string,
+    items: { name: string; color: string; size: string; image: string | null }[],
+    cartUrl: string,
+  ): string {
+    const rows = items
+      .map(
+        (item) => `
+          <tr>
+            <td style="padding: 10px 0; border-bottom: 1px solid #eee;">
+              <strong>${item.name}</strong><br>
+              <span style="color: #777; font-size: 13px;">${item.color} · Size ${item.size}</span>
+            </td>
+          </tr>`,
+      )
+      .join('');
+
+    return this.wrap(
+      'You Left Something Behind',
+      `
+        <p>Hi ${userName},</p>
+        <p>You still have items waiting in your bag:</p>
+        <table style="width:100%;border-collapse:collapse;">${rows}</table>
+        <div class="tracking-box"><a href="${cartUrl}" style="color:#111;text-decoration:underline;">Return to your bag</a></div>
+        <p>Items aren't reserved, so act soon if something's low on stock.</p>
+        <p><strong>Valiant Team</strong></p>
+      `,
+    );
+  }
+
   static generateOtpEmailTemplate(userName: string, otp: string): string {
     return `
       <!DOCTYPE html>
@@ -77,7 +300,7 @@ export class EmailUtils {
     `;
   }
 
-  static generatePasswordResetEmailTemplate(userName: string, resetToken: string): string {
+  static generatePasswordResetEmailTemplate(userName: string, resetUrl: string): string {
     return `
       <!DOCTYPE html>
       <html>
@@ -87,7 +310,9 @@ export class EmailUtils {
             .container { max-width: 600px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; }
             .header { text-align: center; color: #333; margin-bottom: 20px; }
             .content { color: #666; line-height: 1.6; }
-            .token-box { background-color: #f0f0f0; padding: 20px; text-align: center; border-radius: 5px; margin: 20px 0; word-break: break-all; }
+            .button-box { text-align: center; margin: 24px 0; }
+            .button { display: inline-block; background-color: #111; color: #fff; text-decoration: none; padding: 14px 28px; border-radius: 4px; font-weight: bold; }
+            .fallback-link { word-break: break-all; font-size: 12px; color: #666; }
             .footer { text-align: center; color: #999; font-size: 12px; margin-top: 20px; }
             .warning { color: #e74c3c; font-size: 12px; margin-top: 10px; }
           </style>
@@ -99,13 +324,16 @@ export class EmailUtils {
             </div>
             <div class="content">
               <p>Hi ${userName},</p>
-              <p>We received a request to reset your password. Use the token below to reset it:</p>
+              <p>We received a request to reset your password. Click the button below to choose a new one:</p>
 
-              <div class="token-box">
-                <strong>${resetToken}</strong>
+              <div class="button-box">
+                <a class="button" href="${resetUrl}">Reset Password</a>
               </div>
 
-              <p>This token will expire in 1 hour.</p>
+              <p>Or paste this link into your browser:</p>
+              <p class="fallback-link">${resetUrl}</p>
+
+              <p>This link will expire in 1 hour.</p>
               <p class="warning">⚠️ If you didn't request a password reset, please ignore this email.</p>
 
               <p>Best regards,<br><strong>Valiant Team</strong></p>

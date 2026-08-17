@@ -92,8 +92,25 @@ export const UserSchema = SchemaFactory.createForClass(User);
 // resetPasswordToken stores a sha256 hash (not bcrypt — it's already 32 random
 // bytes, so it needs no further slow-hashing) so resetPassword() can look the
 // user up directly by token instead of bcrypt-comparing against every pending user.
-UserSchema.index({ resetPasswordToken: 1 }, { sparse: true });
+//
+// A partial index, not `sparse: true`: Mongoose's `default: null` above means
+// every document has this field *present* (set to null), never actually
+// absent — and MongoDB's sparse indexes only exempt documents where the
+// field is missing entirely, not ones where it's explicitly null. `sparse`
+// here would happily index every user's `null`, which is harmless for a
+// non-unique index but was the exact mechanism that broke the (unique)
+// googleId index below.
+UserSchema.index(
+  { resetPasswordToken: 1 },
+  { partialFilterExpression: { resetPasswordToken: { $type: 'string' } } },
+);
 
-// sparse: local-auth users never get a googleId, so a plain unique index
-// would collide on the many `null` values instead of ignoring them.
-UserSchema.index({ googleId: 1 }, { unique: true, sparse: true });
+// local-auth users never get a googleId, so a plain unique index would
+// collide once a second such user exists — both have the field present as
+// explicit `null` (Mongoose's default, not "missing"), which `sparse`
+// does NOT exempt. A partial index keyed on "is actually a string" is the
+// correct way to make a nullable field's real values unique.
+UserSchema.index(
+  { googleId: 1 },
+  { unique: true, partialFilterExpression: { googleId: { $type: 'string' } } },
+);

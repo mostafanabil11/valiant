@@ -6,7 +6,7 @@ export function CategoryPageHeader({
   description?: string | null;
 }) {
   return (
-    <section className="border-b border-border bg-background py-16 text-center md:py-20">
+    <section className="border-b border-border bg-background py-8 text-center md:py-10">
       <h1 className="font-heading text-headline-md font-bold tracking-[0.02em] text-foreground md:text-display-lg-mobile">
         {title}
       </h1>

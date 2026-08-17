@@ -28,14 +28,15 @@ function CollectionTile({
           src={category.image}
           alt={category.name}
           fill
+          loading="eager"
           className="object-cover transition-transform duration-1000 ease-in-out group-hover:scale-105"
           sizes="(min-width: 768px) 50vw, 100vw"
         />
       )}
       {/* Overlay: gradient darkens toward the bottom so the white label/CTA stay legible over any photo */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/5 to-transparent transition-opacity duration-500 group-hover:from-black/50" />
-      <div className="absolute bottom-8 left-8">
-        <h3 className="mb-2 font-heading text-headline-sm font-bold text-white">{category.name}</h3>
+      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/5 to-transparent transition-opacity duration-500 group-hover:from-black/60" />
+      <div className="absolute bottom-10 left-10">
+        <h3 className="mb-2 font-heading text-headline-md font-bold text-white">{category.name}</h3>
         <span className="inline-flex items-center border-b border-white pb-1 text-[12px] font-semibold tracking-[0.1em] text-white uppercase transition-all group-hover:pr-4">
           Explore <ArrowRight className="ml-2 size-4" />
         </span>
@@ -44,10 +45,14 @@ function CollectionTile({
   );
 }
 
-// Matches the true aspect ratio of the Men/Women source photos (736x1094 / 736x1104,
-// both ~2:3 portrait) so the images display uncropped instead of being forced into a
-// fixed-height box.
-const TOP_ROW_ASPECT = "aspect-[2/3]";
+// Full-width, edge-to-edge pair — this is primary navigation (Men / Women),
+// so it's meant to feel substantial, not tucked into a corner. The source
+// photos are ~2:3 portrait; a 4:5 crop keeps them recognizably portrait
+// (unlike a square or landscape crop, which would feel off for fashion
+// photography) while keeping the row's height sane at full container width
+// — the same trade every fashion site with tall studio photography makes
+// rather than either cropping to a landscape band or leaving the tile huge.
+const TOP_ROW_ASPECT = "aspect-4/5";
 const TALL_HEIGHT = "h-[420px]";
 const SHORT_HEIGHT = "h-[320px]";
 
@@ -89,7 +94,7 @@ export function ShopCollections() {
         </div>
       ) : (
         <div className="flex flex-col gap-gutter">
-          {/* Men / Women — equal size, side by side */}
+          {/* Men / Women — full-width, edge-to-edge pair */}
           <div className="grid grid-cols-1 gap-gutter md:grid-cols-2">
             {topLevel.map((category) => (
               <CollectionTile key={category._id} category={category} className={TOP_ROW_ASPECT} />

@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { ShoppingBag } from "lucide-react";
-import { useCartStore } from "@/store/cart";
+import { useCart } from "@/hooks/use-cart";
 import { useEffect, useState } from "react";
 
 export function CartIconLink({ className, showLabel }: { className?: string; showLabel?: boolean }) {
   const [isMounted, setIsMounted] = useState(false);
-  const count = useCartStore((s) => s.items.reduce((sum, i) => sum + i.quantity, 0));
+  const { itemCount: count } = useCart();
 
   useEffect(() => {
     setIsMounted(true);

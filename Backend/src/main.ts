@@ -30,20 +30,28 @@ async function bootstrap() {
   // Global Zod Validation Pipe
   app.useGlobalPipes(new ZodValidationPipe());
 
-  const config = new DocumentBuilder()
-    .setTitle('Valiant API')
-    .setDescription('The Valiant API description')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
+  // Dev/staging only: the generated docs describe every route, DTO shape and
+  // auth requirement in the API, which is a map worth handing to an attacker
+  // but not to the public.
+  const isProduction = configService.nodeEnv === 'production';
+  if (!isProduction) {
+    const config = new DocumentBuilder()
+      .setTitle('Valiant API')
+      .setDescription('The Valiant API description')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, document);
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api', app, document);
+  }
 
   const port = configService.port;
   await app.listen(port);
   console.log(`🚀 Application is running on: http://localhost:${port}`);
-  console.log(`📖 Swagger docs available at: http://localhost:${port}/api`);
+  if (!isProduction) {
+    console.log(`📖 Swagger docs available at: http://localhost:${port}/api`);
+  }
 }
 
 bootstrap();

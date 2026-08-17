@@ -5,7 +5,7 @@ export function Hero() {
   return (
     <section className="relative flex h-[70vh] w-full items-center justify-center overflow-hidden md:h-[819px]">
       <Image
-        src="/images/home/hero.jpg"
+        src="/images/home/hero-monochrome.jpg"
         alt="Valiant — The Definition of Now"
         fill
         loading="eager"

@@ -41,3 +41,20 @@ export async function getProfile(): Promise<User> {
   const res = await apiClient.get<ApiEnvelope<User>>("/auth/profile");
   return res.data.data;
 }
+
+export async function updateProfile(data: { firstName: string; lastName: string }): Promise<User> {
+  const res = await apiClient.patch<ApiEnvelope<User>>("/auth/profile", data);
+  return res.data.data;
+}
+
+export async function changePassword(data: { currentPassword: string; newPassword: string }): Promise<void> {
+  await apiClient.post("/auth/change-password", data);
+}
+
+export async function forgotPassword(email: string): Promise<void> {
+  await apiClient.post("/auth/forgot-password", { email });
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  await apiClient.post("/auth/reset-password", { token, newPassword });
+}

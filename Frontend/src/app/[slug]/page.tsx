@@ -1,46 +1,52 @@
-"use client";
-
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { getCategoryBySlug } from "@/lib/api/categories";
+import { getCategoryBySlugServer, getTopLevelCategorySlugsServer } from "@/lib/api/categories";
 import { ProductBrowser } from "@/components/products/product-browser";
 import { CategoryPageHeader } from "@/components/products/category-page-header";
 
-export default function CategoryPage() {
-  const params = useParams<{ slug: string }>();
+type Params = Promise<{ slug: string }>;
 
-  const { data: category, isLoading, isError } = useQuery({
-    queryKey: ["categories", "slug", params.slug],
-    queryFn: () => getCategoryBySlug(params.slug),
-  });
+export async function generateStaticParams() {
+  const slugs = await getTopLevelCategorySlugsServer();
+  return slugs.map((slug) => ({ slug }));
+}
 
-  if (isLoading) {
-    return (
-      <div className="mx-auto w-full max-w-(--spacing-container-max) px-margin-mobile py-stack-xl md:px-margin-desktop">
-        <div className="h-[300px] animate-pulse bg-muted" />
-      </div>
-    );
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const { slug } = await params;
+  const category = await getCategoryBySlugServer(slug);
+
+  if (!category) {
+    return { title: "Category Not Found — Valiant" };
   }
 
-  if (isError || !category) {
-    return (
-      <div className="mx-auto flex w-full max-w-(--spacing-container-max) flex-col items-center px-margin-mobile py-stack-xl text-center md:px-margin-desktop">
-        <h1 className="mb-4 font-heading text-headline-md font-bold text-foreground">
-          Category not found
-        </h1>
-        <Link href="/" className="text-[13px] text-muted-foreground underline">
-          Back to home
-        </Link>
-      </div>
-    );
+  const description = category.description ?? `Shop ${category.name} at Valiant — modern essentials, made to last.`;
+
+  return {
+    title: `${category.name} — Valiant`,
+    description,
+    openGraph: {
+      title: `${category.name} — Valiant`,
+      description,
+      images: category.image ? [{ url: category.image }] : undefined,
+      type: "website",
+    },
+  };
+}
+
+export default async function CategoryPage({ params }: { params: Params }) {
+  const { slug } = await params;
+  const category = await getCategoryBySlugServer(slug);
+
+  if (!category) {
+    notFound();
   }
 
   return (
     <div>
       <CategoryPageHeader title={category.name} description={category.description} />
 
-      <div className="mx-auto w-full max-w-(--spacing-container-max) px-margin-mobile py-stack-xl md:px-margin-desktop">
+      <div className="mx-auto w-full max-w-(--spacing-container-max) px-margin-mobile py-8 md:py-12 md:px-margin-desktop">
         {/* Subcategory pills */}
         {category.children && category.children.length > 0 && (
           <div className="mb-12 flex flex-wrap justify-center gap-3">

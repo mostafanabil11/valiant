@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { NewsletterForm } from "./newsletter-form";
 
 const FOOTER_LINKS = [
+  { label: "Shipping & Returns", href: "/shipping-returns" },
+  { label: "Size Guide", href: "/size-guide" },
+  { label: "FAQ", href: "/faq" },
+  { label: "Contact", href: "/contact" },
   { label: "Privacy Policy", href: "/privacy" },
   { label: "Terms of Service", href: "/terms" },
-  { label: "Shipping & Returns", href: "/shipping-returns" },
-  { label: "Contact", href: "/contact" },
 ];
 
 export function SiteFooter() {
@@ -23,7 +26,7 @@ export function SiteFooter() {
         </div>
 
         <div className="grid grid-cols-2 gap-8 md:col-span-2">
-          {[FOOTER_LINKS.slice(0, 2), FOOTER_LINKS.slice(2)].map((column, i) => (
+          {[FOOTER_LINKS.slice(0, 3), FOOTER_LINKS.slice(3)].map((column, i) => (
             <div key={i} className="flex flex-col gap-4">
               {column.map((link) => (
                 <Link
@@ -38,7 +41,15 @@ export function SiteFooter() {
           ))}
         </div>
 
-        <div className="mt-8 flex flex-col items-start justify-end md:mt-0 md:items-end">
+        <div className="mt-8 flex flex-col items-start gap-4 md:mt-0 md:items-end">
+          <div className="w-full md:text-right">
+            <p className="mb-3 text-[11px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+              Join the List
+            </p>
+            <div className="md:ml-auto">
+              <NewsletterForm />
+            </div>
+          </div>
           <p className="text-[12px] tracking-[0.1em] text-muted-foreground uppercase">
             © {new Date().getFullYear()} VALIANT. All rights reserved.
           </p>

@@ -53,6 +53,15 @@ export class Product {
   @Prop({ default: true })
   isActive: boolean = true;
 
+  // Denormalized off approved Reviews so the storefront never has to
+  // aggregate on every page load — recomputed by ReviewsService whenever a
+  // review is approved, rejected, or deleted.
+  @Prop({ default: 0, min: 0, max: 5 })
+  averageRating: number = 0;
+
+  @Prop({ default: 0, min: 0 })
+  reviewCount: number = 0;
+
   createdAt?: Date;
   updatedAt?: Date;
 }

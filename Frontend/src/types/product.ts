@@ -25,6 +25,8 @@ export interface Product {
   sizes: ProductSizeStock[];
   isBestSeller: boolean;
   isActive: boolean;
+  averageRating: number;
+  reviewCount: number;
 }
 
 export interface RelatedColorProduct {
@@ -35,8 +37,19 @@ export interface RelatedColorProduct {
   images: string[];
 }
 
+export interface RelatedProduct {
+  _id: string;
+  name: string;
+  slug: string;
+  color: string;
+  images: string[];
+  price: number;
+  discountPrice: number | null;
+}
+
 export interface ProductDetail extends Product {
   relatedColors: RelatedColorProduct[];
+  relatedProducts: RelatedProduct[];
 }
 
 export interface Pagination {
@@ -49,6 +62,10 @@ export interface Pagination {
 export interface ProductListParams {
   category?: string;
   size?: ProductSize;
+  color?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  onSale?: boolean;
   sort?: "newest" | "price_asc" | "price_desc";
   q?: string;
   page?: number;

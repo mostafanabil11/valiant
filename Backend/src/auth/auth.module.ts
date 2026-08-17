@@ -28,6 +28,6 @@ import { AuthListener } from './listeners/auth.listener';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, GoogleStrategy, EmailService, AuthListener],
-  exports: [AuthService, JwtModule, PassportModule],
+  exports: [AuthService, JwtModule, PassportModule, EmailService],
 })
 export class AuthModule {}

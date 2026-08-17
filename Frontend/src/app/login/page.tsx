@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { loginUser } from "@/lib/api/auth";
 import { GoogleIcon } from "@/components/icons/social-icons";
+import { mergeLocalCartIntoServerCart } from "@/lib/cart-merge";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,8 +18,10 @@ export default function LoginPage() {
 
   const { mutate, isPending } = useMutation({
     mutationFn: loginUser,
-    onSuccess: (user) => {
+    onSuccess: async (user) => {
       queryClient.setQueryData(["auth", "profile"], user);
+      await mergeLocalCartIntoServerCart();
+      queryClient.invalidateQueries({ queryKey: ["cart", "server"] });
       toast.success(`Welcome back, ${user.firstName}`);
       router.push("/");
     },

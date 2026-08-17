@@ -166,11 +166,24 @@ export class CategoriesService {
       throw new BadRequestException(`Invalid category id: ${invalidId.id}`);
     }
 
-    await Promise.all(
-      dto.items.map((item) =>
-        this.categoryModel.updateOne({ _id: item.id }, { displayOrder: item.displayOrder }),
-      ),
+    // One round trip instead of N independent updateOne calls — shrinks the
+    // window where a concurrent read could see a half-applied order, and
+    // `ordered: true` stops at the first failure instead of every other
+    // update firing regardless. Promise.all(updateOne) also silently
+    // no-op'd on an id that didn't exist; matchedCount below now catches that.
+    const result = await this.categoryModel.bulkWrite(
+      dto.items.map((item) => ({
+        updateOne: {
+          filter: { _id: item.id },
+          update: { $set: { displayOrder: item.displayOrder } },
+        },
+      })),
+      { ordered: true },
     );
+
+    if (result.matchedCount !== dto.items.length) {
+      throw new BadRequestException('One or more category ids were not found');
+    }
 
     return {
       success: true,
@@ -182,6 +195,36 @@ export class CategoriesService {
   async findTree() {
     const categories = await this.categoryModel
       .find({ isActive: true })
+      .sort({ displayOrder: 1, name: 1 })
+      .lean();
+
+    const byParent = new Map<string, typeof categories>();
+    for (const category of categories) {
+      const key = category.parent ? category.parent.toString() : 'root';
+      const bucket = byParent.get(key) ?? [];
+      bucket.push(category);
+      byParent.set(key, bucket);
+    }
+
+    const buildBranch = (parentKey: string): any[] =>
+      (byParent.get(parentKey) ?? []).map((category) => ({
+        ...category,
+        children: buildBranch((category._id as Types.ObjectId).toString()),
+      }));
+
+    return {
+      success: true,
+      message: 'Categories retrieved successfully',
+      data: buildBranch('root'),
+    };
+  }
+
+  // Same shape as findTree but includes inactive categories — the storefront
+  // tree hides them, but an admin editing the catalog needs to see (and
+  // reactivate) a deactivated category, not have it silently vanish.
+  async findTreeAdmin() {
+    const categories = await this.categoryModel
+      .find({})
       .sort({ displayOrder: 1, name: 1 })
       .lean();
 

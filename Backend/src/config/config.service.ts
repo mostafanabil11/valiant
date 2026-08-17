@@ -37,4 +37,20 @@ export class ConfigService {
   get frontendUrl(): string {
     return this.configService.get<string>('FRONTEND_URL')!;
   }
+
+  get paymobApiKey(): string {
+    return this.configService.get<string>('PAYMOB_API_KEY')!;
+  }
+
+  get paymobIntegrationId(): string {
+    return this.configService.get<string>('PAYMOB_INTEGRATION_ID')!;
+  }
+
+  get paymobIframeId(): string {
+    return this.configService.get<string>('PAYMOB_IFRAME_ID')!;
+  }
+
+  get paymobHmacSecret(): string {
+    return this.configService.get<string>('PAYMOB_HMAC_SECRET')!;
+  }
 }
