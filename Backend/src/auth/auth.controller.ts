@@ -31,14 +31,25 @@ export class AuthController {
     private configService: ConfigService,
   ) {}
 
-  private setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
+  // In development the API and the site share localhost, so they are same-site
+  // and Lax works (and keeps a little CSRF protection for free). Deployed,
+  // they sit on different domains — a Vercel one and an API one — which makes
+  // every request cross-site, and a Lax cookie is simply not sent on those.
+  // Login would appear to succeed and every request after it would arrive
+  // signed out. SameSite=None is what allows the cookie through, and browsers
+  // only accept None together with Secure.
+  private get cookieOptions() {
     const isProduction = this.configService.nodeEnv === 'production';
-    const base = {
+    return {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax' as const,
+      sameSite: isProduction ? ('none' as const) : ('lax' as const),
       path: '/',
     };
+  }
+
+  private setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
+    const base = this.cookieOptions;
 
     res.cookie('accessToken', accessToken, {
       ...base,
@@ -50,9 +61,13 @@ export class AuthController {
     });
   }
 
+  // Clearing a cookie only works when the attributes match the ones it was set
+  // with, so this deliberately reuses the same options rather than passing a
+  // bare path — otherwise sign-out would silently leave the session cookie in
+  // place in production.
   private clearAuthCookies(res: Response) {
-    res.clearCookie('accessToken', { path: '/' });
-    res.clearCookie('refreshToken', { path: '/' });
+    res.clearCookie('accessToken', this.cookieOptions);
+    res.clearCookie('refreshToken', this.cookieOptions);
   }
 
   private getDeviceInfo(req: any): DeviceInfo {

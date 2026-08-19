@@ -34,8 +34,26 @@ export class ConfigService {
     return this.configService.get<string>('NODE_ENV')!;
   }
 
+  // The canonical site URL — used wherever a single address is needed, such as
+  // the post-OAuth redirect.
   get frontendUrl(): string {
-    return this.configService.get<string>('FRONTEND_URL')!;
+    return this.frontendUrls[0];
+  }
+
+  // FRONTEND_URL may hold several comma-separated origins, because a deployed
+  // site legitimately has more than one: the production domain, a custom
+  // domain, and Vercel's per-branch preview URLs. All of them need to pass
+  // CORS. The first entry is treated as canonical.
+  get frontendUrls(): string[] {
+    return this.configService
+      .get<string>('FRONTEND_URL')!
+      .split(',')
+      .map((url) => url.trim().replace(/\/$/, ''))
+      .filter(Boolean);
+  }
+
+  get isProduction(): boolean {
+    return this.nodeEnv === 'production';
   }
 
   get paymobApiKey(): string {

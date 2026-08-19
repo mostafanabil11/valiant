@@ -105,6 +105,66 @@ environments only.
 cd Backend && npm test
 ```
 
+## Deployment
+
+The two halves deploy to different places, for a reason worth stating: the
+backend runs in-process cron jobs (`orders.scheduler.ts` releases stock from
+abandoned card checkouts every minute) which need a host that keeps a process
+alive. A serverless platform would never run them, and inventory reserved by an
+abandoned checkout would never come back.
+
+- **Frontend → Vercel.** Root directory `Frontend`.
+- **Backend → Render.** See `render.yaml`; it deploys `Backend` as a web service.
+- **Database → MongoDB Atlas.** A cloud backend cannot reach a database on your
+  laptop, so local MongoDB is development-only.
+
+### Moving the database to Atlas
+
+Create a free M0 cluster, add a database user, and allow network access. Then
+copy the local data up:
+
+```bash
+cd Backend
+SOURCE_URI="mongodb://localhost:27017/clothing-brand" \
+TARGET_URI="mongodb+srv://USER:PASS@CLUSTER.mongodb.net/clothing-brand" \
+node scripts/migrate-database.js
+```
+
+Re-running is safe — documents are matched on `_id` and replaced. Pass `--drop`
+to make the target mirror the source exactly. Indexes are not copied; the app
+builds them from its Mongoose schemas on first start.
+
+### Environment variables
+
+On Render (`render.yaml` lists the rest; these are the ones marked `sync:false`):
+
+| Variable | Value |
+| --- | --- |
+| `MONGODB_URI` | the Atlas connection string |
+| `JWT_SECRET` | 32+ chars — `openssl rand -base64 48` |
+| `FRONTEND_URL` | the Vercel site URL; comma-separate several to allow preview domains |
+
+On Vercel:
+
+| Variable | Value |
+| --- | --- |
+| `NEXT_PUBLIC_API_URL` | the Render service URL |
+| `NEXT_PUBLIC_SITE_URL` | the Vercel site URL |
+
+`FRONTEND_URL` and `NEXT_PUBLIC_API_URL` point at each other. Getting either
+wrong shows up as a CORS error in the browser rather than a failed build.
+
+### Why the cookies change in production
+
+Auth cookies are `SameSite=Lax` in development, where the site and API share
+`localhost` and are therefore same-site. Deployed they sit on different domains,
+which makes every request cross-site, and a Lax cookie is not sent on those —
+login would appear to succeed and every request after it would arrive signed
+out. `AuthController` switches to `SameSite=None; Secure` when `NODE_ENV` is
+`production`, which browsers only accept over HTTPS. Both hosts serve HTTPS, so
+this works, but it does mean the API cannot be tested over plain HTTP in
+production mode.
+
 ## Notes
 
 Product and category images are currently served by the frontend itself out of
@@ -121,3 +181,19 @@ not used at runtime.
 killed rather than stopped, Next.js's build cache can be left locked, producing
 `EPERM: operation not permitted` rename errors on the next start. Delete
 `Frontend/.next` and start again.
+
+**The site loads but nothing works, and half the homepage is missing.** Check
+the address bar: Next serves `/_next/*` only to the origin the dev server was
+addressed by, and the API's CORS allowlist is pinned to `FRONTEND_URL`. Opening
+the site as `127.0.0.1:3001` rather than `localhost:3001` fails both checks —
+the HTML renders, no JavaScript loads, and every API call is blocked. Use
+`localhost`.
+
+**Atlas connections hang forever, in Compass and in the app.** A
+`mongodb+srv://` string needs two DNS lookups: an SRV record for the server
+list and a TXT record for the connection options. Some home routers and ISP
+resolvers answer the first and silently drop the second, which surfaces as
+`queryTxt ETIMEOUT` or a spinner that never resolves. Either set your DNS
+servers to `1.1.1.1` / `8.8.8.8`, or use the non-SRV connection string Atlas
+offers under "Connect → Drivers → older version", which lists the hosts
+directly and needs no TXT lookup.
