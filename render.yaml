@@ -14,7 +14,12 @@ services:
     plan: free
     region: frankfurt
     rootDir: Backend
-    buildCommand: npm ci && npm run build
+    # --include=dev is load-bearing. NODE_ENV below is production, which makes
+    # npm omit devDependencies — and the compiler lives there: @nestjs/cli and
+    # typescript are build-time tools, not runtime ones. Without this the
+    # install "succeeds", then `nest build` is not found. The runtime still
+    # only needs dependencies; this affects the build step alone.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start:prod
 
     # Render restarts the service if this stops responding. AppController's
