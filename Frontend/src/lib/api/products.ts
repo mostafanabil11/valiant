@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { serverFetch, serverFetchOptional } from "./server-fetch";
 import type { Product, ProductDetail, ProductListParams, Pagination } from "@/types/product";
 
 interface ApiEnvelope<T> {
@@ -123,27 +124,24 @@ export async function bulkAdjustStock(
 // into Next's request-deduping and next:{revalidate} caching (axios calls
 // go through Node's http module directly and bypass that layer entirely).
 
+// Not optional: a product page has nothing to render without its product, so
+// a failure here should surface rather than silently become a 404.
 export async function getProductBySlugServer(slug: string): Promise<ProductDetail | null> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/${slug}`, {
-    next: { revalidate: 300 },
-  });
+  const res = await serverFetch(`/products/${slug}`, { revalidate: 300 });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to fetch product "${slug}": ${res.status}`);
   const body: ApiEnvelope<ProductDetail> = await res.json();
   return body.data;
 }
 
+// Optional: an empty list means Next renders product pages on demand instead
+// of prerendering them, which is a fine outcome for a build that can't reach
+// the API — unlike failing the entire build.
 export async function getAllProductSlugsServer(): Promise<string[]> {
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products?limit=100`, {
-      next: { revalidate: 3600 },
-    });
-    if (!res.ok) return [];
-    const body: ApiListEnvelope<Product> = await res.json();
-    return body.data.map((p) => p.slug);
-  } catch {
-    // API unreachable (e.g. at build time) — fall back to on-demand rendering
-    // for all product pages instead of failing the whole build.
-    return [];
-  }
+  const body = await serverFetchOptional<ApiListEnvelope<Product> | null>(
+    '/products?limit=100',
+    { revalidate: 3600 },
+    null,
+  );
+  return body?.data.map((p) => p.slug) ?? [];
 }

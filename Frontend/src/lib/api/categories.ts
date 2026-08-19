@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { serverFetch, serverFetchOptional } from "./server-fetch";
 import type { Category } from "@/types/category";
 
 interface ApiEnvelope<T> {
@@ -68,48 +69,40 @@ export async function getChildCategoryBySlug(
 // --- Server-side (Server Components only) — see products.ts for why native
 // fetch is used here instead of the axios client above.
 
+// Not optional: a category page is about this category, so a failure should
+// surface rather than render an empty page as though it were legitimately bare.
 export async function getCategoryBySlugServer(slug: string): Promise<Category | null> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/categories/${slug}`, {
-    next: { revalidate: 300 },
-  });
+  const res = await serverFetch(`/categories/${slug}`, { revalidate: 300 });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to fetch category "${slug}": ${res.status}`);
   const body: ApiEnvelope<Category> = await res.json();
   return body.data;
 }
 
+// Optional: an empty list means category pages render on demand rather than
+// being prerendered, which beats failing the build.
 export async function getTopLevelCategorySlugsServer(): Promise<string[]> {
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/categories`, {
-      next: { revalidate: 3600 },
-    });
-    if (!res.ok) return [];
-    const body: ApiEnvelope<Category[]> = await res.json();
-    return body.data.map((c) => c.slug);
-  } catch {
-    // API unreachable (e.g. at build time) — fall back to on-demand rendering
-    // for all category pages instead of failing the whole build.
-    return [];
-  }
+  const body = await serverFetchOptional<ApiEnvelope<Category[]> | null>(
+    '/categories',
+    { revalidate: 3600 },
+    null,
+  );
+  return body?.data.map((c) => c.slug) ?? [];
 }
 
+// Optional: this feeds the nav menu, which renders on the layout and therefore
+// on every page. A missing menu is a degraded page; a thrown error is no page.
 export async function getCategoryTreeServer(): Promise<Category[]> {
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/categories`, {
-      next: { revalidate: 3600 },
-    });
-    if (!res.ok) return [];
-    const body: ApiEnvelope<Category[]> = await res.json();
-    return body.data;
-  } catch {
-    return [];
-  }
+  const body = await serverFetchOptional<ApiEnvelope<Category[]> | null>(
+    '/categories',
+    { revalidate: 3600 },
+    null,
+  );
+  return body?.data ?? [];
 }
 
 export async function getChildCategoryBySlugServer(parentSlug: string, childSlug: string): Promise<Category | null> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/categories/${parentSlug}/${childSlug}`, {
-    next: { revalidate: 300 },
-  });
+  const res = await serverFetch(`/categories/${parentSlug}/${childSlug}`, { revalidate: 300 });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to fetch child category "${childSlug}": ${res.status}`);
   const body: ApiEnvelope<Category> = await res.json();

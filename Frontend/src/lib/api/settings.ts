@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { serverFetchOptional } from "./server-fetch";
 import type { StoreSettings } from "@/types/settings";
 
 interface ApiEnvelope<T> {
@@ -15,21 +16,20 @@ const DEFAULT_STORE_SETTINGS: StoreSettings = {
 };
 
 // Server-side only (used from Server Components like SiteHeader) — settings
-// change rarely, so this is revalidated hourly rather than fetched on every request.
-// Falls back to defaults rather than throwing so a temporarily unreachable API
-// (e.g. during a build with no live backend configured yet) doesn't take down
-// every page, since SiteHeader renders on the root layout.
+// change rarely, so this is revalidated hourly rather than fetched on every
+// request.
+//
+// Falls back to defaults rather than throwing. SiteHeader renders on the root
+// layout, so every single page depends on this call — letting it fail would
+// take down the whole site, including the 404 page, whenever the API is
+// briefly unreachable.
 export async function getStoreSettings(): Promise<StoreSettings> {
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/settings`, {
-      next: { revalidate: 3600 },
-    });
-    if (!res.ok) return DEFAULT_STORE_SETTINGS;
-    const body: ApiEnvelope<StoreSettings> = await res.json();
-    return body.data;
-  } catch {
-    return DEFAULT_STORE_SETTINGS;
-  }
+  const body = await serverFetchOptional<ApiEnvelope<StoreSettings> | null>(
+    '/settings',
+    { revalidate: 3600 },
+    null,
+  );
+  return body?.data ?? DEFAULT_STORE_SETTINGS;
 }
 
 // Client-side (Client Components, e.g. the checkout page previewing shipping
