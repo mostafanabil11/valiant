@@ -134,10 +134,16 @@ export async function getProductBySlugServer(slug: string): Promise<ProductDetai
 }
 
 export async function getAllProductSlugsServer(): Promise<string[]> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products?limit=100`, {
-    next: { revalidate: 3600 },
-  });
-  if (!res.ok) return [];
-  const body: ApiListEnvelope<Product> = await res.json();
-  return body.data.map((p) => p.slug);
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products?limit=100`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return [];
+    const body: ApiListEnvelope<Product> = await res.json();
+    return body.data.map((p) => p.slug);
+  } catch {
+    // API unreachable (e.g. at build time) — fall back to on-demand rendering
+    // for all product pages instead of failing the whole build.
+    return [];
+  }
 }

@@ -79,21 +79,31 @@ export async function getCategoryBySlugServer(slug: string): Promise<Category | 
 }
 
 export async function getTopLevelCategorySlugsServer(): Promise<string[]> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/categories`, {
-    next: { revalidate: 3600 },
-  });
-  if (!res.ok) return [];
-  const body: ApiEnvelope<Category[]> = await res.json();
-  return body.data.map((c) => c.slug);
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/categories`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return [];
+    const body: ApiEnvelope<Category[]> = await res.json();
+    return body.data.map((c) => c.slug);
+  } catch {
+    // API unreachable (e.g. at build time) — fall back to on-demand rendering
+    // for all category pages instead of failing the whole build.
+    return [];
+  }
 }
 
 export async function getCategoryTreeServer(): Promise<Category[]> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/categories`, {
-    next: { revalidate: 3600 },
-  });
-  if (!res.ok) return [];
-  const body: ApiEnvelope<Category[]> = await res.json();
-  return body.data;
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/categories`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return [];
+    const body: ApiEnvelope<Category[]> = await res.json();
+    return body.data;
+  } catch {
+    return [];
+  }
 }
 
 export async function getChildCategoryBySlugServer(parentSlug: string, childSlug: string): Promise<Category | null> {
