@@ -139,31 +139,26 @@ export default function CartPage() {
           <p className="mb-6 text-[12px] text-muted-foreground">
             Shipping and taxes calculated at checkout.
           </p>
-          {isAuthenticated && (
-            <div className="mb-6">
-              <CouponField items={items} isAuthenticated={isAuthenticated} />
-            </div>
-          )}
-          {isAuthenticated ? (
-            <Link
-              href="/checkout"
-              aria-disabled={!canCheckout}
-              className={`block w-full py-4 text-center text-button font-medium tracking-[0.05em] uppercase transition-colors ${
-                canCheckout
-                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                  : "pointer-events-none bg-primary/40 text-primary-foreground/70"
-              }`}
-            >
-              Checkout
-            </Link>
-          ) : (
-            <Link
-              href="/login?next=/cart"
-              className="block w-full bg-primary py-4 text-center text-button font-medium tracking-[0.05em] text-primary-foreground uppercase transition-colors hover:bg-primary/90"
-            >
-              Sign In to Checkout
-            </Link>
-          )}
+          {/* Shown to guests too — they can hold a coupon just as easily as a
+              member. The per-person cap is checked against their email at
+              checkout, which is the first point we know one. */}
+          <div className="mb-6">
+            <CouponField items={items} isAuthenticated={isAuthenticated} />
+          </div>
+          {/* One button for everyone. Checkout takes an email and address
+              inline, so there is nothing to sign in *for* — the option to do
+              so lives on the checkout page itself, next to the email field. */}
+          <Link
+            href="/checkout"
+            aria-disabled={!canCheckout}
+            className={`block w-full py-4 text-center text-button font-medium tracking-[0.05em] uppercase transition-colors ${
+              canCheckout
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "pointer-events-none bg-primary/40 text-primary-foreground/70"
+            }`}
+          >
+            Checkout
+          </Link>
         </div>
       </div>
     </div>

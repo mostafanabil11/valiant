@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Next 16 serves /_next/* dev resources only to the origin the dev server
+  // was addressed by, so opening the site as 127.0.0.1 instead of localhost
+  // silently blocks every client chunk — the HTML renders but nothing
+  // hydrates. Both spellings point at this machine, so both are allowed.
+  // Dev-only setting; it has no effect on a production build.
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
+
   images: {
     remotePatterns: [
       {
