@@ -2,6 +2,7 @@ import Link from "next/link";
 import { NewsletterForm } from "./newsletter-form";
 
 const FOOTER_LINKS = [
+  { label: "Track Your Order", href: "/track-order" },
   { label: "Shipping & Returns", href: "/shipping-returns" },
   { label: "Size Guide", href: "/size-guide" },
   { label: "FAQ", href: "/faq" },

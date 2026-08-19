@@ -46,7 +46,10 @@ export interface ShippingAddressInput {
 }
 
 export interface CreateOrderInput {
-  userId: string;
+  // Null for a guest order — guestEmail carries the contact address instead.
+  userId: string | null;
+  guestEmail?: string | null;
+  guestAccessToken?: string | null;
   items: CreateOrderItemInput[];
   shippingAddress: ShippingAddressInput;
   shippingCost: number;
@@ -125,6 +128,8 @@ export class OrdersService {
     const order = await this.orderModel.create({
       orderNumber,
       user: input.userId,
+      guestEmail: input.guestEmail ?? null,
+      guestAccessToken: input.guestAccessToken ?? null,
       items,
       shippingAddress: input.shippingAddress,
       subtotal,
@@ -151,17 +156,25 @@ export class OrdersService {
     };
   }
 
-  // Everything the checkout screen actually needs, in one call: reads the
-  // user's server cart (never the client's copy — see CartService), blocks
-  // if anything about it has drifted since the client last saw it, reserves
-  // real stock, snapshots an order, clears the cart, and fires the
-  // confirmation email off as an event rather than blocking the response on it.
-  async checkout(userId: string, dto: CheckoutDto) {
+  // Everything the checkout screen actually needs, in one call: resolves the
+  // cart (never trusting client prices — see CartService), blocks if anything
+  // about it has drifted since the client last saw it, reserves real stock,
+  // snapshots an order, clears the cart, and fires the confirmation email off
+  // as an event rather than blocking the response on it.
+  //
+  // Serves both signed-in and guest checkouts. The only real differences are
+  // where the address and cart come from, and who the order is attached to —
+  // pricing, stock, coupons, and payment are one shared path, so a guest can
+  // never be charged by rules a member wouldn't be.
+  async checkout(userId: string | null, dto: CheckoutDto) {
     // Idempotency is checked before any side effect — a retried request
     // with the same key must never re-reserve stock or re-emit the
     // confirmation email, it should just hand back the original order.
     if (dto.idempotencyKey) {
-      const existing = await this.orderModel.findOne({ idempotencyKey: dto.idempotencyKey, user: userId });
+      const existing = await this.orderModel.findOne({
+        idempotencyKey: dto.idempotencyKey,
+        ...(userId ? { user: userId } : { guestEmail: dto.email?.trim().toLowerCase() }),
+      });
       if (existing) {
         return { success: true, message: 'Order already placed', data: existing };
       }
@@ -173,8 +186,46 @@ export class OrdersService {
       );
     }
 
-    const { data: address } = await this.addressesService.findOne(userId, dto.addressId);
-    const { data: cart } = await this.cartService.getCart(userId);
+    // A signed-in customer may still type a one-off address rather than pick
+    // a saved one, so the saved-address lookup is keyed on the request
+    // carrying an addressId — not merely on the caller being logged in.
+    let address: ShippingAddressInput;
+    if (dto.addressId) {
+      if (!userId) {
+        throw new BadRequestException('Sign in to use a saved address');
+      }
+      const { data: saved } = await this.addressesService.findOne(userId, dto.addressId);
+      address = {
+        firstName: saved.firstName,
+        lastName: saved.lastName,
+        phone: saved.phone,
+        addressLine: saved.addressLine,
+        city: saved.city,
+        governorate: saved.governorate,
+        postalCode: saved.postalCode,
+      };
+    } else {
+      // Guaranteed present by the DTO's superRefine, which rejects a request
+      // carrying neither an addressId nor a full inline address.
+      const inline = dto.shippingAddress!;
+      address = {
+        firstName: inline.firstName,
+        lastName: inline.lastName,
+        phone: inline.phone,
+        addressLine: inline.addressLine,
+        city: inline.city,
+        governorate: inline.governorate,
+        postalCode: inline.postalCode ?? null,
+      };
+    }
+
+    // Signed-in customers are always priced from their server cart. Guests
+    // have nowhere server-side to keep one, so they send their lines and the
+    // cart service re-resolves every one against live product data — same
+    // function, same prices, same availability rules.
+    const { data: cart } = userId
+      ? await this.cartService.getCart(userId)
+      : await this.cartService.validate(dto.items ?? []);
 
     if (cart.items.length === 0) {
       throw new BadRequestException('Your cart is empty');
@@ -189,11 +240,16 @@ export class OrdersService {
     let shippingCost =
       cart.subtotal >= settings.freeShippingThresholdMinorUnits ? 0 : settings.flatShippingRateMinorUnits;
 
+    // Who this order belongs to, in the one shape the coupon layer needs.
+    // Guests are capped per email address rather than per account.
+    const guestEmail = userId ? null : dto.email!.trim().toLowerCase();
+    const redeemer = { userId, email: guestEmail };
+
     // Re-validated here rather than trusted from an earlier /coupons/validate
     // call — the cart (and the coupon itself) may have changed in between.
     let couponApplication: CouponApplication | null = null;
     if (dto.couponCode) {
-      couponApplication = await this.couponsService.resolveCoupon(dto.couponCode, userId, cart);
+      couponApplication = await this.couponsService.resolveCoupon(dto.couponCode, redeemer, cart);
       if (couponApplication.freeShipping) {
         shippingCost = 0;
       }
@@ -237,20 +293,20 @@ export class OrdersService {
     // sweeper releases it if the customer never completes payment.
     const paymentExpiresAt = isCard ? new Date(Date.now() + CARD_PAYMENT_WINDOW_MS) : null;
 
+    // Handed back to the guest exactly once, in the checkout response, so the
+    // tab that placed the order can load its confirmation and poll card
+    // payment without an account. Members don't need one — their session
+    // already proves ownership.
+    const guestAccessToken = userId ? null : randomUUID();
+
     let order;
     try {
       order = await this.createOrder({
         userId,
+        guestEmail,
+        guestAccessToken,
         items: orderItems,
-        shippingAddress: {
-          firstName: address.firstName,
-          lastName: address.lastName,
-          phone: address.phone,
-          addressLine: address.addressLine,
-          city: address.city,
-          governorate: address.governorate,
-          postalCode: address.postalCode,
-        },
+        shippingAddress: address,
         shippingCost,
         discountAmount,
         couponCode: couponApplication?.coupon.code ?? null,
@@ -279,7 +335,7 @@ export class OrdersService {
       try {
         await this.couponsService.reserveRedemption(
           couponApplication.coupon._id,
-          userId,
+          redeemer,
           order.data._id,
           discountAmount,
         );
@@ -297,19 +353,28 @@ export class OrdersService {
       }
     }
 
-    const user = await this.userModel.findById(userId);
+    // Contact details for the confirmation email and the payment provider.
+    // A guest has no User row, so they come from what was typed at checkout —
+    // the shipping name is the only name we have for them.
+    const user = userId ? await this.userModel.findById(userId) : null;
+    const contactEmail = user?.email ?? guestEmail;
+    const contactFirstName = user?.firstName ?? address.firstName;
 
     if (!isCard) {
       // COD: nothing to settle, so the order is final the moment it's placed.
-      await this.cartService.clearInternal(userId);
-      if (user) {
+      // Only members have a server cart to clear; a guest's cart lives in
+      // their browser and is cleared client-side once this call succeeds.
+      if (userId) {
+        await this.cartService.clearInternal(userId);
+      }
+      if (contactEmail) {
         this.eventEmitter.emit('order.placed', {
-          email: user.email,
-          firstName: user.firstName,
+          email: contactEmail,
+          firstName: contactFirstName,
           order: order.data,
         });
       }
-      return order;
+      return this.withGuestToken(order, guestAccessToken);
     }
 
     // Card: hand back a payment session. The cart is deliberately NOT cleared
@@ -325,7 +390,7 @@ export class OrdersService {
           first_name: address.firstName,
           last_name: address.lastName,
           phone_number: address.phone,
-          email: user?.email ?? 'unknown@valiant.local',
+          email: contactEmail ?? 'unknown@valiant.local',
           street: address.addressLine,
           city: address.city,
           state: address.governorate,
@@ -345,6 +410,7 @@ export class OrdersService {
         success: true,
         message: 'Order created — complete payment to confirm',
         data: order.data,
+        guestAccessToken,
         payment: {
           iframeUrl: session.iframeUrl,
           expiresAt: paymentExpiresAt!.toISOString(),
@@ -362,6 +428,54 @@ export class OrdersService {
       await order.data.save();
       throw err;
     }
+  }
+
+  // The token is deliberately surfaced only in the checkout response, never
+  // on any later read of the order — it is a one-time handoff to the tab that
+  // placed the order, not a field of the order itself.
+  private withGuestToken<T extends object>(result: T, guestAccessToken: string | null) {
+    return guestAccessToken ? { ...result, guestAccessToken } : result;
+  }
+
+  // Reads one order for a caller who may be a member (session proves it),
+  // the guest who just placed it (token proves it), or someone doing a
+  // track-my-order lookup (order number + matching email proves it).
+  //
+  // Every branch ends in the same place: an order is only returned to someone
+  // who has already demonstrated they know something private about it.
+  async findOneForViewer(
+    orderNumber: string,
+    viewer: { userId?: string | null; guestAccessToken?: string | null; email?: string | null },
+  ) {
+    const order = await this.orderModel.findOne({ orderNumber });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (viewer.userId && order.user?.toString() === viewer.userId) {
+      return { success: true, message: 'Order retrieved successfully', data: order };
+    }
+
+    // Constant-time-ish comparison isn't warranted here (the token is a v4
+    // UUID and the lookup is already order-number-scoped), but an empty or
+    // null token must never match an order that doesn't have one.
+    if (viewer.guestAccessToken && order.guestAccessToken && order.guestAccessToken === viewer.guestAccessToken) {
+      return { success: true, message: 'Order retrieved successfully', data: order };
+    }
+
+    if (viewer.email) {
+      const email = viewer.email.trim().toLowerCase();
+      const ownerEmail =
+        order.guestEmail ?? (order.user ? (await this.userModel.findById(order.user))?.email?.toLowerCase() : null);
+      if (ownerEmail && ownerEmail === email) {
+        return { success: true, message: 'Order retrieved successfully', data: order };
+      }
+    }
+
+    // Deliberately the same error as a genuinely missing order — telling an
+    // anonymous caller that an order number exists but isn't theirs would let
+    // them enumerate real order numbers.
+    throw new NotFoundException('Order not found');
   }
 
   // Paymob rejects an order whose line items don't add up to the amount it's
@@ -457,13 +571,20 @@ export class OrdersService {
 
     // Stock was already reserved at checkout; payment converts that
     // reservation into a real sale, so it simply stays held.
-    await this.cartService.clearInternal(order.user.toString());
+    //
+    // Only a member has a server cart to empty. A guest's cart lives in their
+    // browser — it is cleared when the confirmation page loads, since the
+    // webhook has no way to reach back into their session.
+    if (order.user) {
+      await this.cartService.clearInternal(order.user.toString());
+    }
 
-    const user = await this.userModel.findById(order.user);
-    if (user) {
+    const user = order.user ? await this.userModel.findById(order.user) : null;
+    const contactEmail = user?.email ?? order.guestEmail;
+    if (contactEmail) {
       this.eventEmitter.emit('order.placed', {
-        email: user.email,
-        firstName: user.firstName,
+        email: contactEmail,
+        firstName: user?.firstName ?? order.shippingAddress.firstName,
         order,
       });
     }
@@ -535,11 +656,14 @@ export class OrdersService {
   // captured and reversing that needs an actual refund through Paymob, which
   // is an admin action, not a one-click customer button. That keeps this
   // safe: nothing here ever promises a refund it can't deliver.
-  async cancelOrder(userId: string, orderNumber: string) {
-    const order = await this.orderModel.findOne({ orderNumber, user: userId });
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+  // Ownership is proved the same way it is for reading an order: a session
+  // for members, the one-time token for the guest who placed it. A guest who
+  // can see their order can also back out of it, exactly like a member.
+  async cancelOrder(
+    viewer: { userId?: string | null; guestAccessToken?: string | null },
+    orderNumber: string,
+  ) {
+    const { data: order } = await this.findOneForViewer(orderNumber, viewer);
 
     const cancellableFulfillment: FulfillmentStatus[] = ['unfulfilled', 'processing'];
     if (order.paymentStatus !== 'pending' || !cancellableFulfillment.includes(order.fulfillmentStatus)) {
@@ -563,9 +687,16 @@ export class OrdersService {
     }
     await this.couponsService.releaseRedemption(order._id);
 
-    const user = await this.userModel.findById(userId);
-    if (user) {
-      this.eventEmitter.emit('order.cancelled', { email: user.email, firstName: user.firstName, order });
+    // Same contact resolution as checkout: the account when there is one,
+    // otherwise what the guest gave us at the till.
+    const owner = order.user ? await this.userModel.findById(order.user) : null;
+    const contactEmail = owner?.email ?? order.guestEmail;
+    if (contactEmail) {
+      this.eventEmitter.emit('order.cancelled', {
+        email: contactEmail,
+        firstName: owner?.firstName ?? order.shippingAddress.firstName,
+        order,
+      });
     }
 
     this.logger.log(`Order ${order.orderNumber} cancelled by customer`);
@@ -675,14 +806,14 @@ export class OrdersService {
 
   // Lets the checkout page poll for the outcome instead of trusting the
   // browser redirect, which can be lost if the customer closes the tab.
-  async getPaymentStatus(userId: string, orderNumber: string) {
-    const order = await this.orderModel
-      .findOne({ orderNumber, user: userId })
-      .select('orderNumber paymentStatus fulfillmentStatus paymentExpiresAt');
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+  // Polled from the checkout page while a card payment is in flight, by
+  // members and guests alike — so ownership is proved the same way a full
+  // order read proves it, rather than assuming a session.
+  async getPaymentStatus(
+    viewer: { userId?: string | null; guestAccessToken?: string | null },
+    orderNumber: string,
+  ) {
+    const { data: order } = await this.findOneForViewer(orderNumber, viewer);
 
     return {
       success: true,
@@ -741,26 +872,13 @@ export class OrdersService {
     };
   }
 
-  // Same record findOneForUser returns, but not ownership-scoped — for the
+  // Same record findOneForViewer returns, but not ownership-scoped — for the
   // admin order detail view.
   async findOneAdmin(orderNumber: string) {
     const order = await this.orderModel.findOne({ orderNumber }).populate('user', 'firstName lastName email');
     if (!order) {
       throw new NotFoundException('Order not found');
     }
-    return {
-      success: true,
-      message: 'Order retrieved successfully',
-      data: order,
-    };
-  }
-
-  async findOneForUser(userId: string, orderNumber: string) {
-    const order = await this.orderModel.findOne({ orderNumber, user: userId });
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
     return {
       success: true,
       message: 'Order retrieved successfully',

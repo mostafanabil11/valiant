@@ -16,8 +16,18 @@ export interface AppliedCoupon {
   freeShipping: boolean;
 }
 
-export async function validateCoupon(code: string): Promise<AppliedCoupon> {
-  const res = await apiClient.post<ApiEnvelope<AppliedCoupon>>("/coupons/validate", { code });
+// `guest` is ignored by the server for signed-in callers, whose own cart and
+// identity always win. It exists so a guest can preview a code against the
+// basket in their browser, which the server has no other way to see.
+export async function validateCoupon(
+  code: string,
+  guest?: { email?: string | null; items?: { productId: string; size: string; quantity: number }[] },
+): Promise<AppliedCoupon> {
+  const res = await apiClient.post<ApiEnvelope<AppliedCoupon>>("/coupons/validate", {
+    code,
+    ...(guest?.email ? { email: guest.email } : {}),
+    ...(guest?.items ? { items: guest.items } : {}),
+  });
   return res.data.data;
 }
 

@@ -16,7 +16,11 @@ function isCancellable(order: Order) {
   return order.paymentStatus === "pending" && ["unfulfilled", "processing"].includes(order.fulfillmentStatus);
 }
 
-export function OrderDetail({ order }: { order: Order }) {
+// canCancel is passed in rather than inferred, because being able to *see* an
+// order isn't the same as being entitled to cancel it. An order reached by
+// order-number-plus-email alone is read-only: that pair is knowable by other
+// people, and cancelling is destructive.
+export function OrderDetail({ order, canCancel = true }: { order: Order; canCancel?: boolean }) {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
 
@@ -108,7 +112,7 @@ export function OrderDetail({ order }: { order: Order }) {
         </p>
       </div>
 
-      {isCancellable(order) && (
+      {canCancel && isCancellable(order) && (
         <div className="mt-8 text-center">
           {confirming ? (
             <div className="flex flex-col items-center gap-3">

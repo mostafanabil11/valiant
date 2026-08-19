@@ -6,14 +6,45 @@ import { useMutation } from "@tanstack/react-query";
 import { validateCoupon } from "@/lib/api/coupons";
 import { useAppliedCoupon } from "@/hooks/use-applied-coupon";
 import { formatPrice } from "@/lib/format";
+import type { ResolvedCartLine } from "@/types/cart";
 
-export function CouponField() {
+// Cart and auth state arrive as props rather than via useCart(). This
+// component renders inside screens that hide themselves while auth is
+// resolving, so subscribing to that same query here would unmount and
+// remount an observer on every state change — which re-triggers the query
+// on mount and never lets it settle.
+//
+// guestEmail is only available on the checkout page, where a guest has
+// entered one. On the cart page it's absent and the server previews the
+// discount without the per-person check, which it repeats at checkout.
+export function CouponField({
+  items,
+  isAuthenticated,
+  guestEmail,
+}: {
+  items: ResolvedCartLine[];
+  isAuthenticated: boolean;
+  guestEmail?: string | null;
+}) {
   const { coupon, setCoupon } = useAppliedCoupon();
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: () => validateCoupon(code.trim()),
+    mutationFn: () =>
+      validateCoupon(
+        code.trim(),
+        isAuthenticated
+          ? undefined
+          : {
+              email: guestEmail,
+              items: items.map((i) => ({
+                productId: i.productId,
+                size: i.size,
+                quantity: i.quantity,
+              })),
+            },
+      ),
     onSuccess: (applied) => {
       setCoupon(applied);
       setError(null);

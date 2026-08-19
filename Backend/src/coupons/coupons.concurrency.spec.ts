@@ -56,7 +56,7 @@ describe('CouponsService concurrent redemption (real MongoDB)', () => {
 
     const attempts = Array.from({ length: 5 }, () =>
       service
-        .reserveRedemption(coupon._id, new Types.ObjectId().toString(), new Types.ObjectId(), 1000)
+        .reserveRedemption(coupon._id, { userId: new Types.ObjectId().toString() }, new Types.ObjectId(), 1000)
         .then(() => 'ok' as const)
         .catch(() => 'rejected' as const),
     );
@@ -78,7 +78,7 @@ describe('CouponsService concurrent redemption (real MongoDB)', () => {
 
     const attempts = Array.from({ length: 5 }, () =>
       service
-        .reserveRedemption(coupon._id, sameUserId, new Types.ObjectId(), 1000)
+        .reserveRedemption(coupon._id, { userId: sameUserId }, new Types.ObjectId(), 1000)
         .then(() => 'ok' as const)
         .catch(() => 'rejected' as const),
     );
@@ -97,7 +97,7 @@ describe('CouponsService concurrent redemption (real MongoDB)', () => {
     const userId = new Types.ObjectId().toString();
     const orderId = new Types.ObjectId();
 
-    await service.reserveRedemption(coupon._id, userId, orderId, 1000);
+    await service.reserveRedemption(coupon._id, { userId }, orderId, 1000);
     expect((await couponModel.findById(coupon._id))!.usedCount).toBe(1);
 
     await service.releaseRedemption(orderId);
@@ -107,7 +107,7 @@ describe('CouponsService concurrent redemption (real MongoDB)', () => {
 
     // Released slot means the same user can now redeem it again.
     await expect(
-      service.reserveRedemption(coupon._id, userId, new Types.ObjectId(), 1000),
+      service.reserveRedemption(coupon._id, { userId }, new Types.ObjectId(), 1000),
     ).resolves.toBeUndefined();
   }, 20000);
 });

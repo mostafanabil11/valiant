@@ -88,8 +88,25 @@ export class Order {
   @Prop({ required: true, unique: true })
   orderNumber: string = '';
 
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
-  user!: Types.ObjectId;
+  // Null for guest checkouts. Every order is still fully self-describing
+  // without it — the shipping snapshot and guestEmail below carry everything
+  // needed to fulfil and contact, so an account is a convenience, not a
+  // requirement for buying.
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: false, default: null })
+  user: Types.ObjectId | null = null;
+
+  // Contact address for guest orders. For account orders this stays null and
+  // the email is read from the linked User instead, so there is exactly one
+  // source of truth per order rather than a copy that can drift.
+  @Prop({ type: String, default: null, lowercase: true, trim: true })
+  guestEmail: string | null = null;
+
+  // Opaque bearer token handed back once, at checkout, so the guest who just
+  // ordered can load their confirmation and poll card payment status without
+  // an account. Not a substitute for the email lookup — it lives in
+  // sessionStorage and dies with the tab.
+  @Prop({ type: String, default: null })
+  guestAccessToken: string | null = null;
 
   @Prop({ type: [OrderItemSchema], required: true })
   items: OrderItem[] = [];
@@ -161,8 +178,23 @@ export class Order {
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
 
+// The guest token is a credential, not order data. It is handed back exactly
+// once — as a separate top-level field on the checkout response — and must
+// never ride along on a normal order read, where it would hand a fresh
+// bearer credential to anyone who could already see the order once.
+OrderSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete (ret as Partial<Order>).guestAccessToken;
+    return ret;
+  },
+});
+
 OrderSchema.index({ user: 1, createdAt: -1 });
 OrderSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+
+// Backs the "track your order" lookup, which pairs an order number with the
+// email that placed it.
+OrderSchema.index({ guestEmail: 1, createdAt: -1 });
 
 // Paymob's webhook identifies an order by its Paymob-side id, so this lookup
 // happens on every callback.

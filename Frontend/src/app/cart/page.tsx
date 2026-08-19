@@ -141,7 +141,7 @@ export default function CartPage() {
           </p>
           {isAuthenticated && (
             <div className="mb-6">
-              <CouponField />
+              <CouponField items={items} isAuthenticated={isAuthenticated} />
             </div>
           )}
           {isAuthenticated ? (

@@ -7,6 +7,7 @@ import { ChevronDown, Lock, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { useCart } from "@/hooks/use-cart";
+import { useCartStore } from "@/store/cart";
 import { useAppliedCoupon } from "@/hooks/use-applied-coupon";
 import { getAddresses } from "@/lib/api/addresses";
 import { getStoreSettingsClient } from "@/lib/api/settings";
@@ -14,6 +15,9 @@ import { checkout, getPaymentStatus } from "@/lib/api/orders";
 import type { CheckoutResponse } from "@/lib/api/orders";
 import { formatPrice } from "@/lib/format";
 import { AddressSection } from "@/components/checkout/address-section";
+import { ContactSection } from "@/components/checkout/contact-section";
+import { GuestDeliverySection } from "@/components/checkout/guest-delivery-section";
+import { EMPTY_ADDRESS_FORM, type AddressFormValues } from "@/components/checkout/address-form-fields";
 import { OrderSummary } from "@/components/checkout/order-summary";
 import { CouponField } from "@/components/checkout/coupon-field";
 import { PaymentSection, type PaymentMethodType } from "@/components/checkout/payment-section";
@@ -24,9 +28,14 @@ export default function CheckoutPage() {
   const queryClient = useQueryClient();
   const { data: user, isLoading: userLoading } = useCurrentUser();
   const { cart, isLoading: cartLoading } = useCart();
+  const clearLocalCart = useCartStore((s) => s.clear);
   const { coupon, setCoupon } = useAppliedCoupon();
 
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  // Guest-only state. Kept here rather than in the child sections so the
+  // place-order mutation can read it directly at submit time.
+  const [guestEmail, setGuestEmail] = useState("");
+  const [guestAddress, setGuestAddress] = useState<AddressFormValues>(EMPTY_ADDRESS_FORM);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("card");
   const [session, setSession] = useState<CheckoutResponse["payment"] & { orderNumber: string } | null>(null);
@@ -39,14 +48,10 @@ export default function CheckoutPage() {
   // pay can't produce a second order.
   const idempotencyKey = useRef<string>(crypto.randomUUID());
 
-  const addressesQuery = useQuery({ queryKey: ["addresses"], queryFn: getAddresses });
+  // Guests have no address book — the query would 401 — so it only runs once
+  // we know there's a session behind it.
+  const addressesQuery = useQuery({ queryKey: ["addresses"], queryFn: getAddresses, enabled: !!user });
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getStoreSettingsClient });
-
-  useEffect(() => {
-    if (!userLoading && !user) {
-      router.replace("/login?next=/checkout");
-    }
-  }, [userLoading, user, router]);
 
   useEffect(() => {
     if (!selectedAddressId && addressesQuery.data && addressesQuery.data.length > 0) {
@@ -56,15 +61,15 @@ export default function CheckoutPage() {
   }, [addressesQuery.data, selectedAddressId]);
 
   useEffect(() => {
-    // Gated on `user` because the cart query is disabled until auth resolves,
-    // and a disabled query reports isLoading:false — otherwise an empty
-    // placeholder cart is indistinguishable from a genuinely empty one.
+    // Waits for auth to resolve because until it does we don't yet know which
+    // cart source is authoritative, and an empty placeholder is
+    // indistinguishable from a genuinely empty basket.
     // Also skipped once a payment session exists: the cart legitimately still
     // has items while the customer is mid-payment.
-    if (!orderPlaced && !session && user && !cartLoading && cart.items.length === 0) {
+    if (!orderPlaced && !session && !userLoading && !cartLoading && cart.items.length === 0) {
       router.replace("/cart");
     }
-  }, [orderPlaced, session, user, cartLoading, cart.items.length, router]);
+  }, [orderPlaced, session, userLoading, cartLoading, cart.items.length, router]);
 
   const shippingCost = useMemo(() => {
     if (!settingsQuery.data) return null;
@@ -94,6 +99,11 @@ export default function CheckoutPage() {
         if (status.paymentStatus === "paid") {
           clearInterval(interval);
           setOrderPlaced(true);
+          // The webhook cleared the member's server cart, but it has no way
+          // to reach a guest's browser-local one — so that happens here.
+          if (!user) {
+            clearLocalCart();
+          }
           queryClient.invalidateQueries({ queryKey: ["cart", "server"] });
           queryClient.invalidateQueries({ queryKey: ["orders"] });
           router.push(`/order-confirmation/${session.orderNumber}`);
@@ -114,7 +124,7 @@ export default function CheckoutPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [session, queryClient, router]);
+  }, [session, queryClient, router, user, clearLocalCart]);
 
   const handleSessionExpired = useCallback(() => {
     setSession(null);
@@ -125,17 +135,44 @@ export default function CheckoutPage() {
 
   const placeOrderMutation = useMutation({
     mutationFn: () =>
-      checkout(selectedAddressId!, idempotencyKey.current, paymentMethod, coupon?.code ?? null),
+      checkout({
+        idempotencyKey: idempotencyKey.current,
+        paymentMethod,
+        couponCode: coupon?.code ?? null,
+        ...(user
+          ? { addressId: selectedAddressId }
+          : {
+              email: guestEmail.trim(),
+              shippingAddress: {
+                ...guestAddress,
+                postalCode: guestAddress.postalCode || null,
+              },
+              // The guest's basket lives only in this browser, so it travels
+              // with the request. The server re-prices every line before
+              // charging anything.
+              items: cart.items.map((i) => ({
+                productId: i.productId,
+                size: i.size,
+                quantity: i.quantity,
+              })),
+            }),
+      }),
     onSuccess: (result) => {
       // Consumed by the order that was just placed (or is now mid-payment) —
       // re-applying it to a future order would fail server-side anyway since
-      // each coupon is redeemable once per user.
+      // each coupon is redeemable once per person.
       setCoupon(null);
       if (result.payment) {
         setSession({ ...result.payment, orderNumber: result.order.orderNumber });
         return;
       }
       setOrderPlaced(true);
+      // A member's cart was emptied server-side; a guest's lives here, so it
+      // has to be cleared locally or the items would still be in the bag on
+      // the confirmation page.
+      if (!user) {
+        clearLocalCart();
+      }
       queryClient.invalidateQueries({ queryKey: ["cart", "server"] });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       router.push(`/order-confirmation/${result.order.orderNumber}`);
@@ -159,12 +196,27 @@ export default function CheckoutPage() {
     setPaymentMethod(method);
   }
 
-  if (userLoading || !user) {
+  // Only waits for auth to resolve — not for a session to exist. Rendering
+  // before it settles would flash the guest form at a signed-in customer.
+  if (userLoading) {
     return null;
   }
 
+  // A member needs a saved address selected; a guest needs the fields they
+  // typed to be complete. Both are re-validated server-side — this only
+  // decides whether the button is worth enabling.
+  const guestDetailsComplete =
+    guestEmail.trim().length > 3 &&
+    guestAddress.firstName.trim() !== "" &&
+    guestAddress.lastName.trim() !== "" &&
+    guestAddress.phone.trim() !== "" &&
+    guestAddress.addressLine.trim() !== "" &&
+    guestAddress.city.trim() !== "";
+
+  const deliveryReady = user ? !!selectedAddressId : guestDetailsComplete;
+
   const canPlaceOrder =
-    !!selectedAddressId && cartIsClean && total !== null && !placeOrderMutation.isPending && !session;
+    deliveryReady && cartIsClean && total !== null && !placeOrderMutation.isPending && !session;
 
   return (
     <div className="mx-auto w-full max-w-(--spacing-container-max) px-margin-mobile py-stack-xl md:px-margin-desktop">
@@ -191,7 +243,7 @@ export default function CheckoutPage() {
         </button>
         {summaryOpen && (
           <div className="space-y-4 border-t border-border p-4">
-            <CouponField />
+            <CouponField items={cart.items} isAuthenticated={!!user} guestEmail={user ? null : guestEmail.trim()} />
             <OrderSummary
               items={cart.items}
               subtotal={cart.subtotal}
@@ -208,18 +260,26 @@ export default function CheckoutPage() {
         <div className="space-y-10 md:col-span-2">
           <CartChangedBanner items={cart.items} />
 
-          <section aria-labelledby="contact-heading">
-            <h2 id="contact-heading" className="mb-3 font-heading text-headline-sm font-bold text-foreground">
-              Contact
-            </h2>
-            <p className="border border-border bg-muted px-4 py-3 text-sm text-foreground">{user.email}</p>
-          </section>
-
-          <AddressSection
-            addresses={addressesQuery.data ?? []}
-            selectedId={selectedAddressId}
-            onSelect={setSelectedAddressId}
+          <ContactSection
+            email={guestEmail}
+            onEmailChange={setGuestEmail}
+            signedInEmail={user?.email ?? null}
+            disabled={placeOrderMutation.isPending || !!session}
           />
+
+          {user ? (
+            <AddressSection
+              addresses={addressesQuery.data ?? []}
+              selectedId={selectedAddressId}
+              onSelect={setSelectedAddressId}
+            />
+          ) : (
+            <GuestDeliverySection
+              value={guestAddress}
+              onChange={setGuestAddress}
+              disabled={placeOrderMutation.isPending || !!session}
+            />
+          )}
 
           <section aria-labelledby="shipping-heading">
             <h2 id="shipping-heading" className="mb-4 font-heading text-headline-sm font-bold text-foreground">
@@ -282,7 +342,7 @@ export default function CheckoutPage() {
               couponCode={coupon?.code ?? null}
               total={total}
             />
-            <CouponField />
+            <CouponField items={cart.items} isAuthenticated={!!user} guestEmail={user ? null : guestEmail.trim()} />
           </div>
         </div>
       </div>

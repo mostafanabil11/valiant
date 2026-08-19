@@ -80,26 +80,26 @@ describe('CouponsService.resolveCoupon', () => {
 
   it('applies a percentage discount', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ type: 'percentage', value: 20 }));
-    const result = await service.resolveCoupon('TEST10', 'user1', cart([line({ lineTotal: 10000 })]));
+    const result = await service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line({ lineTotal: 10000 })]));
     expect(result.discountAmount).toBe(2000);
     expect(result.freeShipping).toBe(false);
   });
 
   it('caps a percentage discount at maxDiscountCap', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ type: 'percentage', value: 50, maxDiscountCap: 1000 }));
-    const result = await service.resolveCoupon('TEST10', 'user1', cart([line({ lineTotal: 10000 })]));
+    const result = await service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line({ lineTotal: 10000 })]));
     expect(result.discountAmount).toBe(1000);
   });
 
   it('clamps a fixed discount to the eligible subtotal', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ type: 'fixed', value: 50000 }));
-    const result = await service.resolveCoupon('TEST10', 'user1', cart([line({ lineTotal: 10000 })]));
+    const result = await service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line({ lineTotal: 10000 })]));
     expect(result.discountAmount).toBe(10000);
   });
 
   it('flags free shipping with no cash discount', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ type: 'free_shipping', value: 0 }));
-    const result = await service.resolveCoupon('TEST10', 'user1', cart([line({ lineTotal: 10000 })]));
+    const result = await service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line({ lineTotal: 10000 })]));
     expect(result.freeShipping).toBe(true);
     expect(result.discountAmount).toBe(0);
   });
@@ -107,7 +107,7 @@ describe('CouponsService.resolveCoupon', () => {
   it('rejects when the cart subtotal is below minSubtotal', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ minSubtotal: 50000 }));
     await expect(
-      service.resolveCoupon('TEST10', 'user1', cart([line({ lineTotal: 10000 })])),
+      service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line({ lineTotal: 10000 })])),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -115,7 +115,7 @@ describe('CouponsService.resolveCoupon', () => {
     const future = new Date(Date.now() + 86400000);
     couponModel.findOne.mockResolvedValue(baseCoupon({ startsAt: future }));
     await expect(
-      service.resolveCoupon('TEST10', 'user1', cart([line()])),
+      service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line()])),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -123,14 +123,14 @@ describe('CouponsService.resolveCoupon', () => {
     const past = new Date(Date.now() - 86400000);
     couponModel.findOne.mockResolvedValue(baseCoupon({ endsAt: past }));
     await expect(
-      service.resolveCoupon('TEST10', 'user1', cart([line()])),
+      service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line()])),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects once the global usage limit is reached', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ usageLimit: 5, usedCount: 5 }));
     await expect(
-      service.resolveCoupon('TEST10', 'user1', cart([line()])),
+      service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line()])),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -138,28 +138,28 @@ describe('CouponsService.resolveCoupon', () => {
     couponModel.findOne.mockResolvedValue(baseCoupon());
     redemptionModel.exists.mockResolvedValue({ _id: new Types.ObjectId() });
     await expect(
-      service.resolveCoupon('TEST10', 'user1', cart([line()])),
+      service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line()])),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects an unknown code', async () => {
     couponModel.findOne.mockResolvedValue(null);
     await expect(
-      service.resolveCoupon('NOPE', 'user1', cart([line()])),
+      service.resolveCoupon('NOPE', { userId: 'user1' }, cart([line()])),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('rejects an inactive coupon', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ isActive: false }));
     await expect(
-      service.resolveCoupon('TEST10', 'user1', cart([line()])),
+      service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line()])),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('excludes sale items when excludeSaleItems is set', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ type: 'percentage', value: 10, excludeSaleItems: true }));
     const items = [line({ lineTotal: 10000, onSale: false }), line({ lineTotal: 5000, onSale: true })];
-    const result = await service.resolveCoupon('TEST10', 'user1', cart(items));
+    const result = await service.resolveCoupon('TEST10', { userId: 'user1' }, cart(items));
     // Only the non-sale 10000 line counts toward the discount base.
     expect(result.discountAmount).toBe(1000);
   });
@@ -167,7 +167,7 @@ describe('CouponsService.resolveCoupon', () => {
   it('rejects when every eligible item is on sale and excludeSaleItems is set', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ excludeSaleItems: true }));
     await expect(
-      service.resolveCoupon('TEST10', 'user1', cart([line({ onSale: true })])),
+      service.resolveCoupon('TEST10', { userId: 'user1' }, cart([line({ onSale: true })])),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -181,7 +181,7 @@ describe('CouponsService.resolveCoupon', () => {
       line({ lineTotal: 10000, categoryId: includedCategory.toString() }),
       line({ lineTotal: 20000, categoryId: otherCategory.toString() }),
     ];
-    const result = await service.resolveCoupon('TEST10', 'user1', cart(items));
+    const result = await service.resolveCoupon('TEST10', { userId: 'user1' }, cart(items));
     expect(result.discountAmount).toBe(1000);
   });
 
@@ -194,14 +194,14 @@ describe('CouponsService.resolveCoupon', () => {
       line({ lineTotal: 10000, productId: includedProduct.toString() }),
       line({ lineTotal: 20000 }),
     ];
-    const result = await service.resolveCoupon('TEST10', 'user1', cart(items));
+    const result = await service.resolveCoupon('TEST10', { userId: 'user1' }, cart(items));
     expect(result.discountAmount).toBe(5000);
   });
 
   it('ignores unavailable cart lines when computing eligibility', async () => {
     couponModel.findOne.mockResolvedValue(baseCoupon({ type: 'percentage', value: 10 }));
     const items = [line({ lineTotal: 10000 }), line({ lineTotal: 90000, available: false })];
-    const result = await service.resolveCoupon('TEST10', 'user1', cart(items));
+    const result = await service.resolveCoupon('TEST10', { userId: 'user1' }, cart(items));
     expect(result.discountAmount).toBe(1000);
   });
 });
@@ -229,7 +229,7 @@ describe('CouponsService.reserveRedemption', () => {
   it('throws when the guarded $inc reports no match (usage limit hit concurrently)', async () => {
     couponModel.updateOne.mockResolvedValue({ modifiedCount: 0 });
     await expect(
-      service.reserveRedemption(new Types.ObjectId(), 'user1', new Types.ObjectId(), 1000),
+      service.reserveRedemption(new Types.ObjectId(), { userId: 'user1' }, new Types.ObjectId(), 1000),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(redemptionModel.create).not.toHaveBeenCalled();
   });
@@ -240,7 +240,7 @@ describe('CouponsService.reserveRedemption', () => {
     const couponId = new Types.ObjectId();
 
     await expect(
-      service.reserveRedemption(couponId, 'user1', new Types.ObjectId(), 1000),
+      service.reserveRedemption(couponId, { userId: 'user1' }, new Types.ObjectId(), 1000),
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(couponModel.updateOne).toHaveBeenCalledTimes(2);

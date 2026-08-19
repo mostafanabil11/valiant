@@ -4,18 +4,12 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { createAddress } from "@/lib/api/addresses";
-import { EGYPT_GOVERNORATES, type Address, type EgyptGovernorate } from "@/types/address";
+import type { Address } from "@/types/address";
+import { AddressFormFields, EMPTY_ADDRESS_FORM, type AddressFormValues } from "./address-form-fields";
 
-const EMPTY_FORM = {
-  firstName: "",
-  lastName: "",
-  phone: "",
-  addressLine: "",
-  city: "",
-  governorate: "Cairo" as EgyptGovernorate,
-  postalCode: "",
-};
-
+// The signed-in delivery step: pick from the address book, or add one to it.
+// Guests get GuestDeliverySection instead — same fields, but nowhere to save
+// them to.
 export function AddressSection({
   addresses,
   selectedId,
@@ -26,7 +20,7 @@ export function AddressSection({
   onSelect: (id: string) => void;
 }) {
   const [showForm, setShowForm] = useState(addresses.length === 0);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState<AddressFormValues>(EMPTY_ADDRESS_FORM);
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
@@ -35,7 +29,7 @@ export function AddressSection({
       queryClient.setQueryData<Address[]>(["addresses"], (prev) => [...(prev ?? []), address]);
       onSelect(address._id);
       setShowForm(false);
-      setForm(EMPTY_FORM);
+      setForm(EMPTY_ADDRESS_FORM);
       toast.success("Address added");
     },
     onError: (err: any) => toast.error(err?.response?.data?.message ?? "Could not save address"),
@@ -54,10 +48,6 @@ export function AddressSection({
       isDefault: addresses.length === 0,
     });
   }
-
-  const inputClass =
-    "w-full border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-foreground";
-  const labelClass = "mb-2 block text-[12px] font-semibold tracking-[0.1em] text-foreground uppercase";
 
   return (
     <section>
@@ -97,7 +87,7 @@ export function AddressSection({
               onClick={() => setShowForm(true)}
               className="text-[13px] font-semibold text-foreground underline"
             >
-              + Add a new address
+              + Use a different address
             </button>
           )}
         </div>
@@ -105,91 +95,12 @@ export function AddressSection({
 
       {showForm && (
         <form onSubmit={handleSubmit} className="space-y-4 border-t border-border pt-6">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelClass} htmlFor="firstName">First Name</label>
-              <input
-                id="firstName"
-                required
-                value={form.firstName}
-                onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="lastName">Last Name</label>
-              <input
-                id="lastName"
-                required
-                value={form.lastName}
-                onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
-                className={inputClass}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className={labelClass} htmlFor="addressLine">Address</label>
-            <input
-              id="addressLine"
-              required
-              value={form.addressLine}
-              onChange={(e) => setForm((f) => ({ ...f, addressLine: e.target.value }))}
-              className={inputClass}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelClass} htmlFor="city">City</label>
-              <input
-                id="city"
-                required
-                value={form.city}
-                onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="governorate">Governorate</label>
-              <select
-                id="governorate"
-                required
-                value={form.governorate}
-                onChange={(e) => setForm((f) => ({ ...f, governorate: e.target.value as EgyptGovernorate }))}
-                className={inputClass}
-              >
-                {EGYPT_GOVERNORATES.map((g) => (
-                  <option key={g} value={g}>
-                    {g}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelClass} htmlFor="postalCode">Postal Code (optional)</label>
-              <input
-                id="postalCode"
-                value={form.postalCode}
-                onChange={(e) => setForm((f) => ({ ...f, postalCode: e.target.value }))}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass} htmlFor="phone">Phone</label>
-              <input
-                id="phone"
-                type="tel"
-                required
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                className={inputClass}
-              />
-            </div>
-          </div>
+          <AddressFormFields
+            value={form}
+            onChange={setForm}
+            idPrefix="saved"
+            disabled={createMutation.isPending}
+          />
 
           <div className="flex gap-3">
             <button

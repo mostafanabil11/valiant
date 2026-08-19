@@ -13,6 +13,14 @@ export interface CouponApplication {
   freeShipping: boolean;
 }
 
+// Who is redeeming: a signed-in user, or a guest identified only by the email
+// they typed at checkout. Per-person limits are enforced against whichever
+// one is present.
+export interface CouponRedeemer {
+  userId: string | null;
+  email?: string | null;
+}
+
 @Injectable()
 export class CouponsService {
   constructor(
@@ -20,11 +28,28 @@ export class CouponsService {
     @InjectModel(CouponRedemption.name) private redemptionModel: Model<CouponRedemptionDocument>,
   ) {}
 
+  // The identity half of a redemption row — a user ref for accounts, a
+  // normalised email for guests. Kept in one place so the "already used"
+  // lookup and the row that gets written can never disagree about who this is.
+  //
+  // Null when the caller is anonymous and hasn't given an email yet, which
+  // happens on the cart page before checkout. Callers decide what that means:
+  // a preview tolerates it, committing a redemption does not.
+  private redemptionIdentity(redeemer: CouponRedeemer): { user: string } | { guestEmail: string } | null {
+    if (redeemer.userId) {
+      return { user: redeemer.userId };
+    }
+    if (redeemer.email) {
+      return { guestEmail: redeemer.email.trim().toLowerCase() };
+    }
+    return null;
+  }
+
   // Read-only: checks eligibility and computes what the discount *would* be
   // against the caller's own already-resolved server cart. No side effects —
   // callable freely for a live preview, and called again (not trusted from
   // the first call) right before an order is actually created.
-  async resolveCoupon(rawCode: string, userId: string, cart: ResolvedCart): Promise<CouponApplication> {
+  async resolveCoupon(rawCode: string, redeemer: CouponRedeemer, cart: ResolvedCart): Promise<CouponApplication> {
     const code = rawCode.trim().toUpperCase();
     const coupon = await this.couponModel.findOne({ code });
     if (!coupon || !coupon.isActive) {
@@ -42,9 +67,16 @@ export class CouponsService {
       throw new BadRequestException('This coupon has reached its usage limit');
     }
 
-    const alreadyUsed = await this.redemptionModel.exists({ coupon: coupon._id, user: userId });
-    if (alreadyUsed) {
-      throw new BadRequestException("You've already used this coupon");
+    // Anonymous preview (cart page, no email yet) can't be checked against
+    // past redemptions. The same check runs again at checkout, by which point
+    // an email is always known, so nothing can slip through — the customer
+    // just learns about it a step later.
+    const identity = this.redemptionIdentity(redeemer);
+    if (identity) {
+      const alreadyUsed = await this.redemptionModel.exists({ coupon: coupon._id, ...identity });
+      if (alreadyUsed) {
+        throw new BadRequestException("You've already used this coupon");
+      }
     }
 
     if (cart.subtotal < coupon.minSubtotal) {
@@ -98,10 +130,18 @@ export class CouponsService {
   // on order id.
   async reserveRedemption(
     couponId: Types.ObjectId,
-    userId: string,
+    redeemer: CouponRedeemer,
     orderId: Types.ObjectId,
     discountAmount: number,
   ): Promise<void> {
+    // Committing a redemption without knowing who it belongs to would make the
+    // per-person cap unenforceable, so this is a hard error rather than the
+    // tolerated null that resolveCoupon allows for previews.
+    const identity = this.redemptionIdentity(redeemer);
+    if (!identity) {
+      throw new BadRequestException('An account or an email address is required to use a coupon');
+    }
+
     const claimed = await this.couponModel.updateOne(
       {
         _id: couponId,
@@ -114,10 +154,15 @@ export class CouponsService {
     }
 
     try {
-      await this.redemptionModel.create({ coupon: couponId, user: userId, order: orderId, discountAmount });
+      await this.redemptionModel.create({
+        coupon: couponId,
+        ...identity,
+        order: orderId,
+        discountAmount,
+      });
     } catch (err) {
       // Unique-index violation: another concurrent request for this same
-      // user+coupon (or order) won the race. Undo the counter bump we just
+      // redeemer+coupon (or order) won the race. Undo the counter bump we just
       // made and surface the same conflict the guard above would have.
       await this.couponModel.updateOne({ _id: couponId }, { $inc: { usedCount: -1 } });
       throw new ConflictException("You've already used this coupon");

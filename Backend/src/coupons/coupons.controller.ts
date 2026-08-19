@@ -4,6 +4,7 @@ import { CouponsService } from './coupons.service';
 import { CreateCouponDto, UpdateCouponDto, ValidateCouponDto } from './dto';
 import { CartService } from '@/cart/cart.service';
 import { CurrentUser } from '@/auth/decorators/current-user.decorator';
+import { OptionalAuth } from '@/auth/decorators/optional-auth.decorator';
 import { RequestUser } from '@/auth/interfaces/request-user.interface';
 import { Roles } from '@/common/decorators/roles.decorator';
 import { Audit } from '@/common/decorators/audit.decorator';
@@ -19,11 +20,22 @@ export class CouponsController {
     private cartService: CartService,
   ) {}
 
+  @OptionalAuth()
   @Post('validate')
-  @ApiOperation({ summary: "Preview a coupon against the current user's cart" })
-  async validate(@CurrentUser() user: RequestUser, @Body() dto: ValidateCouponDto) {
-    const { data: cart } = await this.cartService.getCart(user.userId);
-    const application = await this.couponsService.resolveCoupon(dto.code, user.userId, cart);
+  @ApiOperation({ summary: 'Preview a coupon against the cart (works for guests too)' })
+  async validate(@CurrentUser() user: RequestUser | null, @Body() dto: ValidateCouponDto) {
+    // Signed-in callers are always priced against their real server cart;
+    // only a guest may describe their own basket, and even then every line is
+    // re-resolved against live product data by the cart service.
+    const { data: cart } = user
+      ? await this.cartService.getCart(user.userId)
+      : await this.cartService.validate(dto.items ?? []);
+
+    const application = await this.couponsService.resolveCoupon(
+      dto.code,
+      user ? { userId: user.userId } : { userId: null, email: dto.email },
+      cart,
+    );
     return {
       success: true,
       message: 'Coupon applied',
