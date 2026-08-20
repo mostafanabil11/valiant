@@ -35,6 +35,13 @@ export const envSchema = z.object({
   JWT_EXPIRATION: z.string().default('15m'),
   JWT_REFRESH_EXPIRATION: z.string().default('7d'),
   
+  // Email transport — Brevo's HTTP API is preferred where SMTP ports are
+  // blocked (most managed hosts); Gmail over SMTP stays for local development.
+  // All optional: the app runs without email, it just delivers nothing.
+  BREVO_API_KEY: z.string().optional(),
+  MAIL_FROM_ADDRESS: z.email().optional(),
+  MAIL_FROM_NAME: z.string().optional(),
+
   EMAIL_USER: z.email().optional(),
   EMAIL_PASSWORD: z.string().optional(),
   

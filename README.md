@@ -143,6 +143,8 @@ On Render (`render.yaml` lists the rest; these are the ones marked `sync:false`)
 | `MONGODB_URI` | the Atlas connection string |
 | `JWT_SECRET` | 32+ chars — `openssl rand -base64 48` |
 | `FRONTEND_URL` | the Vercel site URL; comma-separate several to allow preview domains |
+| `BREVO_API_KEY` | see *Email in production* below |
+| `MAIL_FROM_ADDRESS` | the sender address verified with Brevo |
 
 On Vercel:
 
@@ -153,6 +155,26 @@ On Vercel:
 
 `FRONTEND_URL` and `NEXT_PUBLIC_API_URL` point at each other. Getting either
 wrong shows up as a CORS error in the browser rather than a failed build.
+
+### Email in production
+
+Gmail over SMTP is fine locally and does not work on a managed host: free Render
+instances block outbound traffic on ports 25, 465 and 587, so mail silently goes
+nowhere while everything looks healthy. `EmailService` therefore has two
+transports and picks whichever is configured, preferring Brevo:
+
+| Transport | When | Configured by |
+| --- | --- | --- |
+| Brevo HTTP API | production | `BREVO_API_KEY`, `MAIL_FROM_ADDRESS` |
+| Gmail SMTP | local development | `EMAIL_USER`, `EMAIL_PASSWORD` |
+
+Brevo verifies a **single sender address**, not a whole domain, so this works
+before you own a brand domain — verify the address under *Senders* and use it as
+`MAIL_FROM_ADDRESS`. The free tier allows 300 messages a day.
+
+Whichever transport is active is logged at startup, along with whether it could
+be reached, so "no email arrived" is answerable from the logs rather than by
+guesswork.
 
 ### Why the cookies change in production
 

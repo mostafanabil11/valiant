@@ -56,12 +56,36 @@ export class ConfigService {
     return this.nodeEnv === 'production';
   }
 
-  // Order confirmations, OTPs and password resets all go through here. Without
-  // credentials the app still runs — orders are placed, accounts still work —
-  // but nothing is delivered, so this is checked explicitly rather than left to
-  // fail per-message against placeholder credentials.
-  get isEmailConfigured(): boolean {
+  // Preferred transport in production: an HTTPS API, which hosts that block
+  // outbound SMTP ports cannot block. Render's free instances refuse traffic on
+  // 25, 465 and 587, so SMTP works in development and silently does nothing
+  // once deployed.
+  get brevoApiKey(): string | undefined {
+    return this.get<string>('BREVO_API_KEY')?.trim() || undefined;
+  }
+
+  // Gmail over SMTP — kept for local development, where nothing is blocked.
+  get isSmtpConfigured(): boolean {
     return Boolean(this.get('EMAIL_USER') && this.get('EMAIL_PASSWORD'));
+  }
+
+  // Order confirmations, OTPs and password resets all go through one of the
+  // two. Without either the app still runs — orders are placed, accounts still
+  // work — but nothing is delivered, so this is checked explicitly rather than
+  // left to fail per message.
+  get isEmailConfigured(): boolean {
+    return Boolean(this.brevoApiKey) || this.isSmtpConfigured;
+  }
+
+  // The address customers see. Must be one the provider has verified —
+  // with Brevo that can be a single confirmed address rather than a whole
+  // domain, which is what makes this workable before a brand domain exists.
+  get mailFromAddress(): string {
+    return (this.get<string>('MAIL_FROM_ADDRESS') || this.get<string>('EMAIL_USER') || '')?.trim();
+  }
+
+  get mailFromName(): string {
+    return this.get<string>('MAIL_FROM_NAME')?.trim() || 'Valiant';
   }
 
   // Google sign-in is optional, exactly like Paymob card payments: all three

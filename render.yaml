@@ -61,9 +61,17 @@ services:
       - key: LOCK_TIME_MINUTES
         value: "15"
 
-      # Optional. Email is needed for order confirmations and OTP; without it
-      # those silently no-op. Card checkout stays disabled unless all four
-      # PAYMOB_* values are present, and cash on delivery keeps working.
+      # Email. Use Brevo here, not SMTP: free Render instances block outbound
+      # traffic on ports 25, 465 and 587, so Gmail works in development and
+      # delivers nothing once deployed. Brevo sends over HTTPS, which is not
+      # blocked, and verifies a single sender address rather than a domain.
+      # EMAIL_USER / EMAIL_PASSWORD are left available for a paid instance.
+      - key: BREVO_API_KEY
+        sync: false
+      - key: MAIL_FROM_ADDRESS
+        sync: false
+      - key: MAIL_FROM_NAME
+        value: Valiant
       - key: EMAIL_USER
         sync: false
       - key: EMAIL_PASSWORD
