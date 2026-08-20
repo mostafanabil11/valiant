@@ -14,12 +14,38 @@ export class EmailService {
   private initializeTransporter() {
     if (this.configService.isEmailConfigured) {
       this.transporter = nodemailer.createTransport({
-        service: 'gmail',
+        // Spelled out rather than service:'gmail' so the port is visible: some
+        // hosts block outbound SMTP, and knowing which port we tried is the
+        // difference between a diagnosable failure and a mystery.
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
         auth: {
-          user: this.configService.get<string>('EMAIL_USER'),
-          pass: this.configService.get<string>('EMAIL_PASSWORD'),
+          // Google prints App Passwords in four blocks for readability; the
+          // spaces are presentation, not part of the secret. A value pasted
+          // from that screen — or from a dashboard field that kept a stray
+          // space — must still authenticate.
+          user: this.configService.get<string>('EMAIL_USER')?.trim(),
+          pass: this.configService.get<string>('EMAIL_PASSWORD')?.replace(/\s+/g, ''),
         },
+        // Without these nodemailer waits minutes on a blocked port, so a
+        // failure surfaces long after the request that caused it.
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
       });
+
+      // Proves at startup whether mail can actually leave this host, instead
+      // of finding out when a customer's confirmation silently doesn't arrive.
+      // Deliberately not awaited: email is not worth delaying boot for.
+      void this.transporter
+        .verify()
+        .then(() => this.logger.log('SMTP connection verified — order emails will be delivered'))
+        .catch((err: Error) =>
+          this.logger.error(
+            `SMTP verification FAILED — no email will be delivered. Reason: ${err.message}`,
+          ),
+        );
       return;
     }
 
@@ -103,29 +129,28 @@ export class EmailService {
   }
 
   async sendOrderConfirmationEmail(email: string, userName: string, orderNumber: string, htmlTemplate: string): Promise<boolean> {
-    try {
-      if (process.env.NODE_ENV === 'development' && !process.env.EMAIL_USER) {
-        console.log(`
-        📧 Order Confirmation Email (Development Mode)
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        To: ${email}
-        Subject: Order Confirmed — ${orderNumber}
-        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        `);
-        return true;
-      }
+    if (!this.isConfigured) {
+      this.logger.warn(`Order ${orderNumber}: no email credentials, confirmation to ${email} not sent`);
+      return false;
+    }
 
+    try {
       await this.transporter.sendMail({
-        from: `"Valiant" <${this.configService.get<string>('EMAIL_USER') || 'noreply@valiant.com'}>`,
+        from: `"Valiant" <${this.configService.get<string>('EMAIL_USER')?.trim()}>`,
         to: email,
         subject: `Order Confirmed — ${orderNumber}`,
         html: htmlTemplate,
       });
 
-      console.log(`✓ Order confirmation email sent to ${email}`);
+      this.logger.log(`Order ${orderNumber}: confirmation email sent to ${email}`);
       return true;
     } catch (error) {
-      console.error('Error sending order confirmation email:', error);
+      // Logged at error level with the order number attached, so a missing
+      // confirmation can be traced to the order it belonged to rather than
+      // being an anonymous line in the output.
+      this.logger.error(
+        `Order ${orderNumber}: confirmation email to ${email} FAILED — ${(error as Error).message}`,
+      );
       // Never fail checkout because the confirmation email couldn't send —
       // the order is already placed and paid for (or COD-committed); losing
       // the email is a much smaller problem than losing the order.
