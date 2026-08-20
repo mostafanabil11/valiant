@@ -180,7 +180,7 @@ export function ProductBrowser({
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
                 aria-label="Previous page"
-                className="text-foreground transition-opacity hover:opacity-70 disabled:opacity-30"
+                className="-m-2 p-2 text-foreground transition-opacity hover:opacity-70 disabled:opacity-30"
               >
                 <ChevronLeft className="size-5" strokeWidth={1.5} />
               </button>
@@ -192,7 +192,7 @@ export function ProductBrowser({
                 onClick={() => setPage((p) => Math.min(data.pagination.pages, p + 1))}
                 disabled={page >= data.pagination.pages}
                 aria-label="Next page"
-                className="text-foreground transition-opacity hover:opacity-70 disabled:opacity-30"
+                className="-m-2 p-2 text-foreground transition-opacity hover:opacity-70 disabled:opacity-30"
               >
                 <ChevronRight className="size-5" strokeWidth={1.5} />
               </button>

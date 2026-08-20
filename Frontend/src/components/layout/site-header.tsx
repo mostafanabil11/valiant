@@ -26,10 +26,15 @@ export async function SiteHeader() {
           <div className="flex items-center gap-4">
             <MobileNav categories={categories} />
             
+            {/* -m-2 p-2 grows the tap area to ~36px without moving anything:
+                the icon is 20px, which is below the 24px minimum a touch
+                target should meet and well below the 44px phones are designed
+                around. The negative margin cancels the padding for layout, so
+                only the hit box changes. */}
             <Link
               href="/search"
               aria-label="Search"
-              className="flex items-center gap-2 text-foreground transition-opacity hover:opacity-70"
+              className="-m-2 flex items-center gap-2 p-2 text-foreground transition-opacity hover:opacity-70"
             >
               <Search className="size-5 md:size-[18px]" strokeWidth={1.5} />
               <span className="hidden text-sm tracking-[0.02em] md:inline">Search</span>
@@ -49,11 +54,11 @@ export async function SiteHeader() {
             <AccountMenu className="hidden items-center gap-2 text-sm tracking-[0.02em] text-foreground transition-opacity hover:opacity-70 md:flex" />
             <AccountMenu
               iconOnly
-              className="text-foreground transition-opacity hover:opacity-70 md:hidden"
+              className="-m-2 p-2 text-foreground transition-opacity hover:opacity-70 md:hidden"
             />
             <CartIconLink
               showLabel
-              className="flex items-center gap-2 text-sm tracking-[0.02em] text-foreground transition-opacity hover:opacity-70"
+              className="-m-2 flex items-center gap-2 p-2 text-sm tracking-[0.02em] text-foreground transition-opacity hover:opacity-70"
             />
           </div>
         </div>

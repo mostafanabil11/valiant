@@ -12,8 +12,21 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3001"),
-  title: "Valiant",
-  description: "Valiant — modern essentials, made to last.",
+  // Deliberately a bare default rather than a template: every page already
+  // spells out its own "… — Valiant" title, so a template would append the
+  // brand a second time. This is what shows for the homepage and for any page
+  // that sets no title of its own — and "Valiant" alone tells someone who has
+  // not heard of the brand nothing at all.
+  title: "Valiant — Modern Essentials, Made to Last",
+  description:
+    "Modern wardrobe essentials in considered fabrics — shirts, knitwear, denim and outerwear, made to outlast the season.",
+  openGraph: {
+    type: "website",
+    siteName: "Valiant",
+    title: "Valiant — Modern Essentials, Made to Last",
+    description:
+      "Modern wardrobe essentials in considered fabrics — shirts, knitwear, denim and outerwear, made to outlast the season.",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
