@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+// Where the API really lives. Server Components talk to it directly (no browser
+// involved, so no cookie or CORS question), and the rewrite below points at it.
+const API_ORIGIN = process.env.API_ORIGIN ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+
 const nextConfig: NextConfig = {
   // Next 16 serves /_next/* dev resources only to the origin the dev server
   // was addressed by, so opening the site as 127.0.0.1 instead of localhost
@@ -17,6 +21,27 @@ const nextConfig: NextConfig = {
   //
   // Moving images to a real host later means adding that host here; it does
   // not mean bringing back the local-IP escape hatch.
+
+  // The browser talks to the API through this app's own origin.
+  //
+  // Deployed, the site and the API sit on unrelated domains (vercel.app and
+  // onrender.com), which makes the session cookie a *third-party* cookie.
+  // Safari blocks those outright and Chrome is removing them, so signing in
+  // appeared to work and then every following request arrived anonymous:
+  // refreshing signed you out, the cart refused to add anything, and the admin
+  // area came back empty. It looked like a mobile bug because desktop Chrome
+  // still permits third-party cookies today.
+  //
+  // Proxying through /api/backend makes the cookie first-party — same origin as
+  // the page — which no browser has any reason to drop.
+  async rewrites() {
+    return [
+      {
+        source: "/api/backend/:path*",
+        destination: `${API_ORIGIN}/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

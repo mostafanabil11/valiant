@@ -56,6 +56,14 @@ export class ConfigService {
     return this.nodeEnv === 'production';
   }
 
+  // Order confirmations, OTPs and password resets all go through here. Without
+  // credentials the app still runs — orders are placed, accounts still work —
+  // but nothing is delivered, so this is checked explicitly rather than left to
+  // fail per-message against placeholder credentials.
+  get isEmailConfigured(): boolean {
+    return Boolean(this.get('EMAIL_USER') && this.get('EMAIL_PASSWORD'));
+  }
+
   // Google sign-in is optional, exactly like Paymob card payments: all three
   // values or none. Passport's OAuth2 strategy throws from its constructor if
   // clientID is missing, so a half-configured deployment doesn't degrade to

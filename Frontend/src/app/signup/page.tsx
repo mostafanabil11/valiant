@@ -8,6 +8,7 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { registerUser, verifyEmail, resendOtp } from "@/lib/api/auth";
 import { GoogleIcon } from "@/components/icons/social-icons";
+import { API_BASE_PATH } from "@/lib/api/client";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -175,7 +176,7 @@ export default function SignupPage() {
               </div>
 
               <a
-                href={`${process.env.NEXT_PUBLIC_API_URL}/auth/google`}
+                href={`${API_BASE_PATH}/auth/google`}
                 className="flex w-full items-center justify-center gap-3 border border-border py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
               >
                 <GoogleIcon className="size-4" />

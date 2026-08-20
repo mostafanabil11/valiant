@@ -33,12 +33,15 @@ export async function serverFetch(
   path: string,
   { revalidate, timeoutMs = DEFAULT_TIMEOUT_MS }: ServerFetchOptions,
 ): Promise<Response> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+  // Straight to the API, not through the /api/backend rewrite the browser
+  // uses: there is no cookie or CORS question server-side, and looping back
+  // through this app's own origin would just add a hop.
+  const baseUrl = process.env.API_ORIGIN ?? process.env.NEXT_PUBLIC_API_URL;
 
   // Explicit rather than letting the URL become the string "undefined/..." and
   // failing several frames away from the actual mistake.
   if (!baseUrl) {
-    throw new ServerFetchError('NEXT_PUBLIC_API_URL is not set', null);
+    throw new ServerFetchError('Neither API_ORIGIN nor NEXT_PUBLIC_API_URL is set', null);
   }
 
   try {

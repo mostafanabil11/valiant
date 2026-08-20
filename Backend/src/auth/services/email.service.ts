@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { ConfigService } from '@/config/config.service';
 
 @Injectable()
 export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
   private transporter!: nodemailer.Transporter;
 
   constructor(private configService: ConfigService) {
@@ -11,20 +12,35 @@ export class EmailService {
   }
 
   private initializeTransporter() {
-    // For development - using Gmail (you can change to other email providers)
-    // In production, use environment variables for email credentials
-    this.transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER || 'your_email@gmail.com',
-        pass: process.env.EMAIL_PASSWORD || 'your_app_password',
-      },
-    });
-
-    // For testing - log to console
-    if (process.env.NODE_ENV === 'development' && !process.env.EMAIL_USER) {
-      console.log('⚠️  Email service configured in development mode (console logging)');
+    if (this.configService.isEmailConfigured) {
+      this.transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: this.configService.get<string>('EMAIL_USER'),
+          pass: this.configService.get<string>('EMAIL_PASSWORD'),
+        },
+      });
+      return;
     }
+
+    // Previously this fell back to the literal strings 'your_email@gmail.com'
+    // and 'your_app_password', so an unconfigured deployment authenticated
+    // against Gmail with placeholder credentials, failed, and swallowed the
+    // error — orders were confirmed on screen and no email ever arrived, with
+    // nothing in the logs saying why.
+    //
+    // jsonTransport delivers nowhere and cannot fail, which keeps checkout
+    // working; the warning below is what makes the missing configuration
+    // visible instead of silent.
+    this.transporter = nodemailer.createTransport({ jsonTransport: true });
+    this.logger.warn(
+      'EMAIL_USER / EMAIL_PASSWORD are not set — order confirmations, OTPs and password resets will NOT be delivered.',
+    );
+  }
+
+  /** True when messages actually leave the building. */
+  get isConfigured(): boolean {
+    return this.configService.isEmailConfigured;
   }
 
   async sendOtpEmail(email: string, userName: string, otp: string, htmlTemplate: string): Promise<boolean> {
