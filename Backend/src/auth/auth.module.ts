@@ -27,7 +27,24 @@ import { AuthListener } from './listeners/auth.listener';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleStrategy, EmailService, AuthListener],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    // Constructed only when Google credentials are present. Passport's OAuth2
+    // strategy throws from its constructor without a clientID, so registering
+    // it unconditionally means an optional integration can prevent the entire
+    // application from starting. Building it lazily keeps "Google not
+    // configured" a disabled feature rather than a dead process — see
+    // GoogleAuthGuard for what callers get instead.
+    {
+      provide: GoogleStrategy,
+      useFactory: (configService: ConfigService) =>
+        configService.isGoogleAuthConfigured ? new GoogleStrategy(configService) : null,
+      inject: [ConfigService],
+    },
+    EmailService,
+    AuthListener,
+  ],
   exports: [AuthService, JwtModule, PassportModule, EmailService],
 })
 export class AuthModule {}

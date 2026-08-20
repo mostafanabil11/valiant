@@ -56,6 +56,16 @@ export class ConfigService {
     return this.nodeEnv === 'production';
   }
 
+  // Google sign-in is optional, exactly like Paymob card payments: all three
+  // values or none. Passport's OAuth2 strategy throws from its constructor if
+  // clientID is missing, so a half-configured deployment doesn't degrade to
+  // "Google button doesn't work" — it takes the whole process down at boot.
+  get isGoogleAuthConfigured(): boolean {
+    return Boolean(
+      this.get('GOOGLE_CLIENT_ID') && this.get('GOOGLE_CLIENT_SECRET') && this.get('GOOGLE_CALLBACK_URL'),
+    );
+  }
+
   get paymobApiKey(): string {
     return this.configService.get<string>('PAYMOB_API_KEY')!;
   }
