@@ -8,20 +8,15 @@ const nextConfig: NextConfig = {
   // Dev-only setting; it has no effect on a production build.
   allowedDevOrigins: ["127.0.0.1", "localhost"],
 
-  images: {
-    remotePatterns: [
-      {
-        protocol: "http",
-        hostname: "localhost",
-        port: "3001",
-      },
-    ],
-    // Dev-only: category images are currently hosted by this app itself
-    // (localhost), which Next 16's SSRF guard blocks by default since it
-    // resolves to a private IP. Production will host images on a real CDN
-    // (e.g. Cloudinary/S3), which won't need this flag at all.
-    dangerouslyAllowLocalIP: true,
-  },
+  // No remotePatterns and no dangerouslyAllowLocalIP: product and category
+  // images are stored as root-relative paths and served by this app out of
+  // public/, so the optimizer never makes an outbound request. Both settings
+  // existed only to permit fetching from http://localhost:3001, which is what
+  // the database used to store — and which resolved, in production, to the
+  // visitor's own machine.
+  //
+  // Moving images to a real host later means adding that host here; it does
+  // not mean bringing back the local-IP escape hatch.
 };
 
 export default nextConfig;

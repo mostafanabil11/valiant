@@ -4,7 +4,12 @@ import { Category, CategorySchema } from '../../categories/schemas/category.sche
 import { Product, ProductSchema } from '../../products/schemas/product.schema';
 import { slugify } from '../../common/utils/slugify.util';
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+// Image paths are stored root-relative, deliberately. The storefront serves
+// these out of its own public/ directory, so a path resolves against whatever
+// origin is serving the page — the same row works in development, in a preview
+// deployment, and in production. Prefixing a host here would pin the data to
+// one environment: seeded locally and deployed, every image URL would point at
+// the visitor's own machine.
 
 interface SeedSize {
   size: 'S' | 'M' | 'L' | 'XL' | '2XL';
@@ -359,7 +364,7 @@ async function run() {
 
     const productSlug = slug;
     const images = Array.from({ length: item.imageCount }, (_, i) => (
-      `${FRONTEND_URL}/images/products/${productSlug}/image${i + 1}.jpg`
+      `/images/products/${productSlug}/image${i + 1}.jpg`
     ));
 
     await ProductModel.create({
