@@ -197,25 +197,5 @@ development — both need replacing with the real image host before deploying.
 `products_imgs/` at the repo root holds the original source photography and is
 not used at runtime.
 
-## Troubleshooting
 
-**Images or pages fail to load after an abrupt shutdown.** If the dev server was
-killed rather than stopped, Next.js's build cache can be left locked, producing
-`EPERM: operation not permitted` rename errors on the next start. Delete
-`Frontend/.next` and start again.
 
-**The site loads but nothing works, and half the homepage is missing.** Check
-the address bar: Next serves `/_next/*` only to the origin the dev server was
-addressed by, and the API's CORS allowlist is pinned to `FRONTEND_URL`. Opening
-the site as `127.0.0.1:3001` rather than `localhost:3001` fails both checks —
-the HTML renders, no JavaScript loads, and every API call is blocked. Use
-`localhost`.
-
-**Atlas connections hang forever, in Compass and in the app.** A
-`mongodb+srv://` string needs two DNS lookups: an SRV record for the server
-list and a TXT record for the connection options. Some home routers and ISP
-resolvers answer the first and silently drop the second, which surfaces as
-`queryTxt ETIMEOUT` or a spinner that never resolves. Either set your DNS
-servers to `1.1.1.1` / `8.8.8.8`, or use the non-SRV connection string Atlas
-offers under "Connect → Drivers → older version", which lists the hosts
-directly and needs no TXT lookup.
