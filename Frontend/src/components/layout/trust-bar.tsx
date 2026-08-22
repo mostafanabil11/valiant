@@ -36,8 +36,14 @@ export function TrustBar() {
     // tall — a second line of text, not the padding. One line and tighter
     // padding halves it, and the phrases that survive are the ones that say
     // something about the clothes.
-    <div className="w-full border-b border-border bg-muted py-1.5 text-center">
-      <p className="text-[11px] font-medium tracking-[0.15em] text-muted-foreground uppercase md:text-[12px]">
+    //
+    // Background and text are a shade darker than the shared bg-muted /
+    // text-muted-foreground tokens — set as their own values rather than by
+    // changing those tokens, since both are used in ~300 other places across
+    // the site and darkening them globally would recolor things far beyond
+    // this bar.
+    <div className="w-full border-b border-border bg-[oklch(0.91_0_0)] py-1.5 text-center">
+      <p className="text-[11px] font-medium tracking-[0.15em] text-[oklch(0.42_0_0)] uppercase md:text-[12px]">
         Timeless Design <span className="mx-2 text-border">·</span> Made to Last
       </p>
     </div>
