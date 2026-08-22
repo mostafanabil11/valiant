@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { SiteHeader } from "@/components/layout/site-header";
+import { TrustBar } from "@/components/layout/trust-bar";
 import { SiteFooter } from "@/components/layout/site-footer";
 import "./globals.css";
 
@@ -41,6 +42,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </a>
         <Providers>
           <SiteHeader />
+          {/* Sits in the layout rather than on each page so it appears
+              everywhere by default; it excludes itself from checkout, account
+              and admin routes. */}
+          <TrustBar />
           <main id="main-content" className="flex-1">
             {children}
           </main>
