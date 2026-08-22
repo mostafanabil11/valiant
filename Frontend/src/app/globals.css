@@ -14,6 +14,7 @@
   --spacing-unit: 8px;
   --spacing-gutter: 24px;
   --spacing-stack-md: 48px;
+  /* Overridden for narrow screens below — see the media query after @theme. */
   --spacing-stack-xl: 120px;
   --spacing-margin-mobile: 20px;
   --spacing-margin-desktop: 64px;
@@ -86,6 +87,23 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* 120px of padding above and below every section is generous on a wide screen
+   and overwhelming on a phone: stacked sections each contribute their own, so
+   the homepage put 240px — most of a phone's visible height — of nothing
+   between Best Sellers and Shop Collections.
+   Overriding the one utility rather than the ~34 places that use it keeps every
+   page consistent, and leaves desktop spacing exactly as designed.
+   This overrides the generated class rather than the token because @theme is
+   declared `inline`, which substitutes token values at build time — so
+   py-stack-xl compiles to a literal 120px with no variable left to reassign.
+   Deliberately unlayered: Tailwind's utilities sit in @layer utilities, and
+   unlayered rules win over layered ones regardless of source order. */
+@media (width < 48rem) {
+  .py-stack-xl {
+    padding-block: 56px;
+  }
 }
 
 :root {
